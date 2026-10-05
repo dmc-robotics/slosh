@@ -6,6 +6,7 @@
 
 #include "slosh/FluidRenderer.h"
 #include "slosh/FluidSimulation.h"
+#include "slosh/FuelLevel.h"
 #include "slosh/PerformanceModel.h"
 #include "slosh/TunedSettings.h"
 
@@ -43,6 +44,15 @@ void writeImage(const char* path, const std::vector<uint16_t>& pixels) {
     std::fwrite(rgb, 1, 3, file);
   }
   std::fclose(file);
+}
+
+void checkFuelLevel() {
+  check(fillLevelFromCellVoltage(3.0f) == 0.0f, "a flat cell is empty");
+  check(fillLevelFromCellVoltage(4.25f) == 1.0f, "a full cell is full");
+  check(std::abs(fillLevelFromCellVoltage(3.80f) - 0.4f) < 1e-4f, "a cell at 3.80 V has 40% left");
+  check(settleFillLevel(0.5f, 0.51f) == 0.5f, "small changes in the level are held");
+  check(settleFillLevel(0.5f, 0.45f) == 0.45f, "large changes in the level go through");
+  check(settleFillLevel(0.01f, 0.0f) == 0.0f && settleFillLevel(0.99f, 1.0f) == 1.0f, "empty and full always show");
 }
 
 }  // namespace
@@ -95,6 +105,7 @@ int main(int argumentCount, char** arguments) {
   std::printf("estimate: simulation %.1f ms, render %.1f ms, transfer %.1f ms, %.0f fps\n", estimate.simulationTime * 1e3f,
               estimate.renderTime * 1e3f, estimate.transferTime * 1e3f, estimate.frameRate);
 
+  checkFuelLevel();
   std::printf(failures == 0 ? "all passed\n" : "%d failed\n", failures);
   return failures == 0 ? 0 : 1;
 }

@@ -9,7 +9,7 @@ Runs on the [Waveshare ESP32-S3-Touch-AMOLED-1.75](https://www.waveshare.com/esp
 | Path | What |
 |---|---|
 | `slosh.ino` | Firmware main loop: read the sensors, step, render in strips, report timings |
-| `src/slosh/` | Shared core, plain C++ used by both the firmware and the tuner: FLIP simulation, renderer, ESP32 cost model, `TunedSettings.h` |
+| `src/slosh/` | Shared core, plain C++ used by both the firmware and the tuner: FLIP simulation, renderer, ESP32 cost model, LiPo fuel level, `TunedSettings.h` |
 | `src/hardware/` | Firmware only: pins, power bus config, accelerometer and bus voltage sensors |
 | `tuner/` | Browser tuner: `index.html` plus the core compiled to WebAssembly |
 | `test/` | Host check of the shared core |
