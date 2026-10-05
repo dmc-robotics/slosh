@@ -38,7 +38,7 @@ Over USB serial the firmware prints `fps`, per-stage timings, bus voltage and fi
 
 ## Wiring
 
-Feed the robot's power bus through a resistor divider into GPIO16 (expansion header pin 8), and connect the grounds. The default 100 kΩ / 20 kΩ divider suits up to a 4-cell pack. Set the cell count and resistor values in `src/hardware/PowerBusConfig.h`. With nothing connected, the gauge shows a fixed bench level.
+Feed the robot's power bus through a resistor divider into GPIO16 (expansion header pin 8), and connect the grounds. The default 100 kΩ / 20 kΩ divider suits up to a 4-cell pack (16.8 V). A larger pack needs a bigger top resistor, and the build fails if a full pack would put more than 3.1 V on the pin. For extra protection, add a 1 kΩ series resistor and a 3.3 V clamp diode at the pin. Set the cell count and resistor values in `src/hardware/PowerBusConfig.h`. With nothing connected, the gauge shows a fixed bench level.
 
 ## Test
 
