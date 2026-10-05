@@ -7,12 +7,15 @@
 
 // Particles at full charge for these settings.
 int fullTankParticleCount(const GaugeSettings& settings);
+// Peak heap bytes configure() needs for these settings, including scratch used while seeding.
+int simulationMemory(const GaugeSettings& settings);
 
 // 2D FLIP liquid in a circular tank, after Matthias Müller's "Ten Minute Physics" FLIP demo.
 // Positions are in meters with x right and y down, measured from the grid corner.
 class FluidSimulation {
  public:
-  // Rebuilds the grid and refills the tank when the tank geometry changes.
+  // Rebuilds the grid and refills the tank when the tank geometry changes. The tank is filled
+  // to the last setFillLevel, so set that first.
   void configure(const GaugeSettings& settings);
   // Acceleration the liquid feels in display coordinates, m/s².
   void setGravity(float x, float y);

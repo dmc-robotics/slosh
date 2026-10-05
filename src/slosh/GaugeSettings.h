@@ -1,13 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <initializer_list>
 
 // Diameter of the round display in pixels.
 constexpr int DISPLAY_SIZE = 466;
 
 // Everything that shapes how the gauge looks and how much work it costs.
-// The tuner edits these and exports them as TunedSettings.h. Keep the field order
-// in sync with the tuner's FIELDS list, which writes them as designated initializers.
+// The tuner edits these and exports them as TunedSettings.h. A new field also goes in
+// tuner/bindings.cpp and, in the same order as here, the tuner's FIELDS list.
 struct GaugeSettings {
   // Level
   float fullChargeFill;      // liquid at 100% charge relative to a tightly packed full tank;
@@ -39,3 +40,18 @@ struct GaugeSettings {
   // Performance
   float targetFrameRate;     // frames per second the ESP32 should sustain
 };
+
+// False for settings that would hang or crash the simulation or renderer, or overflow its sizes.
+constexpr bool settingsValid(const GaugeSettings& settings) {
+  auto finite = [](float value) { return value - value == 0.0f; };
+  for (float value : {settings.fullChargeFill, settings.tankDiameter, settings.gravityScale, settings.particleRadiusRatio,
+                      settings.overRelaxation, settings.flipRatio, settings.driftCompensation, settings.surfaceThreshold,
+                      settings.surfaceSoftness, settings.rimWidth, settings.glowStrength, settings.targetFrameRate}) {
+    if (!finite(value)) return false;
+  }
+  return settings.fullChargeFill > 0.0f && settings.fullChargeFill <= 10.0f && settings.tankDiameter > 0.0f &&
+         settings.gridResolution >= 2 && settings.gridResolution <= 256 && settings.particleRadiusRatio >= 0.1f &&
+         settings.particleRadiusRatio <= 0.5f && settings.substeps >= 1 && settings.pressureIterations >= 0 &&
+         settings.separationIterations >= 0 && settings.densityResolution >= 2 && settings.densityResolution <= 256 &&
+         settings.smoothingPasses >= 0 && settings.targetFrameRate > 0.0f;
+}

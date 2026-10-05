@@ -146,6 +146,7 @@
         <div class="budget-line" id="budgetLine"></div>
       </div>
       <div class="legend" id="budgetLegend"></div>
+      <div><span class="status" id="memoryStatus"></span></div>
       <p class="note">The cost model is uncalibrated until it is fitted to timings the firmware prints over serial.</p>
     </div>
     <div id="settingsPanels"></div>
@@ -162,7 +163,8 @@
 
 <script src="slosh.js"></script>
 <script>
-// Same order as GaugeSettings in src/slosh/GaugeSettings.h; the export relies on it.
+// Same fields and order as GaugeSettings in src/slosh/GaugeSettings.h; the export writes them as
+// designated initializers, which must follow the struct's order.
 const FIELDS = [
   { key: "fullChargeFill", group: "Level", label: "Fill at full charge", min: 0.5, max: 4, step: 0.05, hint: "Liquid at 100% charge, relative to a tightly packed full tank. Above 1 makes up for the liquid compressing under its own weight." },
   { key: "tankDiameter", group: "Physics", label: "Tank diameter", unit: "m", min: 0.05, max: 2, step: 0.01, hint: "Virtual tank size. Bigger sloshes more slowly." },
@@ -211,6 +213,11 @@ if (typeof createSloshModule === "undefined") {
   const context = canvas.getContext("2d");
   const image = context.createImageData(module.DISPLAY_SIZE, module.DISPLAY_SIZE);
   const frame = document.getElementById("gaugeFrame");
+
+  const boundKeys = Object.keys(gauge.settings());
+  if (boundKeys.length !== FIELDS.length || FIELDS.some(field => !boundKeys.includes(field.key))) {
+    throw new Error(`FIELDS doesn't match the GaugeSettings bindings: ${boundKeys.join(", ")}`);
+  }
 
   let settings = readSettings(gauge.settings());
   const inputs = buildSettingsPanels();
@@ -284,8 +291,8 @@ if (typeof createSloshModule === "undefined") {
     document.getElementById("transferBar").style.width = percent(estimate.transferTime);
     document.getElementById("budgetLine").style.left = percent(budget);
     const status = document.getElementById("budgetStatus");
-    status.className = `status ${estimate.withinBudget ? "ok" : "over"}`;
-    status.textContent = estimate.withinBudget
+    status.className = `status ${estimate.withinFrameBudget ? "ok" : "over"}`;
+    status.textContent = estimate.withinFrameBudget
       ? `${estimate.frameRate.toFixed(0)} fps, within the ${settings.targetFrameRate} fps target`
       : `${estimate.frameRate.toFixed(0)} fps, too much for the ${settings.targetFrameRate} fps target`;
     const milliseconds = time => `${(time * 1000).toFixed(1)} ms`;
@@ -293,6 +300,12 @@ if (typeof createSloshModule === "undefined") {
       `<span><i style="background: var(--simulation)"></i>Simulation ${milliseconds(estimate.simulationTime)}</span>` +
       `<span><i style="background: var(--render)"></i>Render ${milliseconds(estimate.renderTime)}</span>` +
       `<span><i style="background: var(--transfer)"></i>Display transfer ${milliseconds(estimate.transferTime)}</span>`;
+    const memory = document.getElementById("memoryStatus");
+    const kilobytes = bytes => `${Math.round(bytes / 1000)} KB`;
+    memory.className = `status ${estimate.withinMemoryBudget ? "ok" : "over"}`;
+    memory.textContent = estimate.withinMemoryBudget
+      ? `${kilobytes(estimate.memory)} of the ${kilobytes(module.MEMORY_BUDGET)} heap budget`
+      : `${kilobytes(estimate.memory)} of heap: over the ${kilobytes(module.MEMORY_BUDGET)} budget, the ESP32 would crash`;
   }
 
   function settingsHeader() {
@@ -343,6 +356,7 @@ if (typeof createSloshModule === "undefined") {
     const next = { ...settings };
     const imported = [];
     const invalid = [];
+    const clamped = [];
     for (const field of FIELDS) {
       if (!(field.key in found)) continue;
       const text = found[field.key];
@@ -351,7 +365,10 @@ if (typeof createSloshModule === "undefined") {
         invalid.push(field.key);
         continue;
       }
-      next[field.key] = field.color || field.integer ? value : roundFloat(value);
+      let limited = field.color ? Math.min(Math.max(value, 0), 0xffffff) : Math.min(Math.max(value, field.min), field.max);
+      if (!field.color) limited = roundFloat(Math.min(field.min + Math.round((limited - field.min) / field.step) * field.step, field.max));
+      if (limited !== value) clamped.push(field.key);
+      next[field.key] = limited;
       imported.push(field.key);
     }
     const missing = FIELDS.filter(field => !(field.key in found)).map(field => field.key);
@@ -364,6 +381,7 @@ if (typeof createSloshModule === "undefined") {
     const problems = [];
     if (missing.length) problems.push(`Not in the file, kept current: ${missing.join(", ")}.`);
     if (invalid.length) problems.push(`Unreadable, kept current: ${invalid.join(", ")}.`);
+    if (clamped.length) problems.push(`Moved onto the slider range and steps: ${clamped.join(", ")}.`);
     if (unknown.length) problems.push(`Ignored unknown: ${unknown.join(", ")}.`);
     return { imported: imported.length, problems };
   }

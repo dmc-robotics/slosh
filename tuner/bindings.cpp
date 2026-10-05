@@ -10,6 +10,9 @@
 
 using namespace emscripten;
 
+// Catches a GaugeSettings field added without a binding below, which the tuner would silently zero.
+static_assert(sizeof(GaugeSettings) == 21 * 4, "GaugeSettings changed: update the bindings below and FIELDS in index.html");
+
 class Gauge {
  public:
   Gauge() : _pixels(DISPLAY_SIZE * DISPLAY_SIZE), _rgba(DISPLAY_SIZE * DISPLAY_SIZE * 4) { setSettings(TUNED_SETTINGS); }
@@ -85,7 +88,9 @@ EMSCRIPTEN_BINDINGS(slosh) {
       .field("transferTime", &PerformanceEstimate::transferTime)
       .field("frameTime", &PerformanceEstimate::frameTime)
       .field("frameRate", &PerformanceEstimate::frameRate)
-      .field("withinBudget", &PerformanceEstimate::withinBudget);
+      .field("withinFrameBudget", &PerformanceEstimate::withinFrameBudget)
+      .field("memory", &PerformanceEstimate::memory)
+      .field("withinMemoryBudget", &PerformanceEstimate::withinMemoryBudget);
 
   class_<Gauge>("Gauge")
       .constructor<>()
@@ -100,4 +105,5 @@ EMSCRIPTEN_BINDINGS(slosh) {
 
   function("tunedSettings", &tunedSettings);
   constant("DISPLAY_SIZE", DISPLAY_SIZE);
+  constant("MEMORY_BUDGET", MEMORY_BUDGET);
 }

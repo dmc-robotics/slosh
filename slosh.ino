@@ -7,7 +7,10 @@
 #include "src/hardware/MotionSensor.h"
 #include "src/slosh/FluidRenderer.h"
 #include "src/slosh/FluidSimulation.h"
+#include "src/slosh/PerformanceModel.h"
 #include "src/slosh/TunedSettings.h"
+
+static_assert(settingsValid(TUNED_SETTINGS), "TunedSettings.h holds settings that would crash the gauge");
 
 constexpr int STRIP_HEIGHT = 16;  // rows per transfer; the CO5300 wants even row windows
 // Each step simulates one frame at the tuned rate, so frames are held to that rate.
@@ -44,18 +47,28 @@ void setup() {
   console.begin(115200);
   Wire.begin(I2C_DATA_PIN, I2C_CLOCK_PIN);
 
-  if (!display->begin()) console.println("ERROR:display failed to start");
+  if (!display->begin(DISPLAY_BUS_FREQUENCY)) console.println("ERROR:display failed to start");
   display->fillScreen(RGB565_BLACK);
   display->setBrightness(DISPLAY_BRIGHTNESS);
 
   if (!motionSensor.begin(Wire)) console.println("ERROR:QMI8658 not found; using fixed gravity");
+
+  PerformanceEstimate estimate = estimatePerformance(TUNED_SETTINGS, DISPLAY_SIZE);
+  if (!estimate.withinMemoryBudget) {
+    // Allocating would abort and reboot in a loop; stay up so the message can be read.
+    while (true) {
+      console.printf("ERROR:settings need about %d bytes of heap, over the %d byte budget\n", estimate.memory, MEMORY_BUDGET);
+      delay(1000);
+    }
+  }
 
   fuelSensor.begin();
   simulation.setFillLevel(fuelSensor.fillLevel());
   simulation.configure(TUNED_SETTINGS);
   renderer.configure(TUNED_SETTINGS, DISPLAY_SIZE);
 
-  console.printf("INFO:%d particles at full capacity\n", simulation.particleCapacity());
+  console.printf("INFO:%d particles at full capacity, %u bytes of heap free\n", simulation.particleCapacity(),
+                 ESP.getFreeHeap());
   previousFrameTime = micros();
   timings.windowStart = previousFrameTime;
 }
@@ -103,10 +116,11 @@ void reportTimings() {
   uint32_t now = micros();
   if (now - timings.windowStart < REPORT_INTERVAL) return;
   float frames = timings.frames;
-  console.printf("fps:%.1f,simulation_ms:%.2f,render_ms:%.2f,transfer_ms:%.2f,bus_voltage:%.2f,fill:%.2f\n",
-                 frames * 1e6f / (now - timings.windowStart), timings.simulation / frames / 1000.0f,
-                 timings.render / frames / 1000.0f, timings.transfer / frames / 1000.0f, fuelSensor.busVoltage(),
-                 fuelSensor.fillLevel());
+  console.printf(
+      "fps:%.1f,simulation_ms:%.2f,render_ms:%.2f,transfer_ms:%.2f,particles:%d,free_heap:%u,bus_voltage:%.2f,fill:%.2f\n",
+      frames * 1e6f / (now - timings.windowStart), timings.simulation / frames / 1000.0f, timings.render / frames / 1000.0f,
+      timings.transfer / frames / 1000.0f, simulation.particleCount(), ESP.getFreeHeap(), fuelSensor.busVoltage(),
+      fuelSensor.fillLevel());
   timings = FrameTimings{};
   timings.windowStart = now;
 }

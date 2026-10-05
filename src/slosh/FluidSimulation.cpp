@@ -16,10 +16,10 @@ constexpr float LATTICE_SQUEEZE = 0.97f;  // spacing factor per try when seeding
 float latticeSpacingX(float particleRadius) { return 2.0f * particleRadius; }
 float latticeSpacingY(float particleRadius) { return SQRT_THREE * particleRadius; }
 
-// Hexagonal lattice points within radius of the origin, spaced for particles of particleRadius.
-void hexagonalLattice(float radius, float particleRadius, std::vector<float>& xs, std::vector<float>& ys) {
-  xs.clear();
-  ys.clear();
+// Calls visit(x, y) for each hexagonal lattice point within radius of the origin, spaced for
+// particles of particleRadius.
+template <typename Visit>
+void forEachLatticePoint(float radius, float particleRadius, Visit visit) {
   float spacingX = latticeSpacingX(particleRadius);
   float spacingY = latticeSpacingY(particleRadius);
   int rows = static_cast<int>(2.0f * radius / spacingY) + 1;
@@ -27,21 +27,46 @@ void hexagonalLattice(float radius, float particleRadius, std::vector<float>& xs
     float y = -radius + row * spacingY;
     float offset = (row % 2) * particleRadius;
     for (float x = -radius + offset; x <= radius; x += spacingX) {
-      if (x * x + y * y > radius * radius) continue;
-      xs.push_back(x);
-      ys.push_back(y);
+      if (x * x + y * y <= radius * radius) visit(x, y);
     }
   }
+}
+
+int latticePointCount(float radius, float particleRadius) {
+  int count = 0;
+  forEachLatticePoint(radius, particleRadius, [&](float, float) { count++; });
+  return count;
+}
+
+// Particles that fit the tank at rest spacing.
+int restParticleCount(const GaugeSettings& settings) {
+  float particleRadius = settings.particleRadiusRatio * (settings.tankDiameter / settings.gridResolution);
+  return latticePointCount(0.5f * settings.tankDiameter - particleRadius, particleRadius);
+}
+
+// Cells across the spatial hash that keeps particles apart.
+int separationGridSize(int gridSize, float cellSize, float particleRadius) {
+  return static_cast<int>(gridSize * cellSize / (SEPARATION_SPACING_RATIO * particleRadius)) + 1;
 }
 
 }  // namespace
 
 int fullTankParticleCount(const GaugeSettings& settings) {
+  return static_cast<int>(std::lround(restParticleCount(settings) * settings.fullChargeFill));
+}
+
+int simulationMemory(const GaugeSettings& settings) {
+  int gridSize = settings.gridResolution + 2;
   float cellSize = settings.tankDiameter / settings.gridResolution;
-  float particleRadius = settings.particleRadiusRatio * cellSize;
-  float usableRadius = 0.5f * settings.tankDiameter - particleRadius;
-  float particleArea = latticeSpacingX(particleRadius) * latticeSpacingY(particleRadius);
-  return static_cast<int>(settings.fullChargeFill * PI * usableRadius * usableRadius / particleArea);
+  int separationSize = separationGridSize(gridSize, cellSize, settings.particleRadiusRatio * cellSize);
+  int particles = fullTankParticleCount(settings);
+  // Seeding lays out at least the rest lattice, squeezed past the count needed when it is too small.
+  int latticePoints = std::max(restParticleCount(settings), static_cast<int>(particles / (LATTICE_SQUEEZE * LATTICE_SQUEEZE)));
+  int gridBytes = gridSize * gridSize * (8 * sizeof(float) + sizeof(uint8_t));  // velocities, weights, density, openness, cell type
+  int separationBytes = separationSize * separationSize * 2 * sizeof(int);
+  int particleBytes = particles * (4 * sizeof(float) + sizeof(int));
+  int seedingBytes = latticePoints * (2 * sizeof(float) + sizeof(int));  // lattice and sort order, freed after seeding
+  return gridBytes + separationBytes + particleBytes + seedingBytes;
 }
 
 float FluidSimulation::particleArea() const {
@@ -63,6 +88,7 @@ void FluidSimulation::setGravity(float x, float y) {
 }
 
 void FluidSimulation::setFillLevel(float level) {
+  if (std::isnan(level)) return;
   _fillLevel = std::clamp(level, 0.0f, 1.0f);
   int target = static_cast<int>(std::lround(_fillLevel * _particleCapacity));
   while (_particleCount < target) spawnParticle();
@@ -93,14 +119,12 @@ void FluidSimulation::buildGrid() {
   }
 
   _separationInverseSpacing = 1.0f / (SEPARATION_SPACING_RATIO * _particleRadius);
-  _separationGridSize = static_cast<int>(_gridSize * _cellSize * _separationInverseSpacing) + 1;
+  _separationGridSize = separationGridSize(_gridSize, _cellSize, _particleRadius);
   int separationCellCount = _separationGridSize * _separationGridSize;
   _separationCellCounts.assign(separationCellCount, 0);
   _separationCellFirst.assign(separationCellCount + 1, 0);
 
-  std::vector<float> latticeX, latticeY;
-  hexagonalLattice(_tankRadius - _particleRadius, _particleRadius, latticeX, latticeY);
-  _particleCapacity = static_cast<int>(std::lround(latticeX.size() * _settings.fullChargeFill));
+  _particleCapacity = fullTankParticleCount(_settings);
   for (auto* field : {&_positionX, &_positionY, &_velocityX, &_velocityY}) {
     field->assign(_particleCapacity, 0.0f);
   }
@@ -115,13 +139,16 @@ void FluidSimulation::seedParticles(int count) {
   float downX = gravityLength > 0.0f ? _gravityX / gravityLength : 0.0f;
   float downY = gravityLength > 0.0f ? _gravityY / gravityLength : 1.0f;
 
-  std::vector<float> latticeX, latticeY;
+  float latticeRadius = _tankRadius - _particleRadius;
   float spacingRadius = _particleRadius;
-  hexagonalLattice(_tankRadius - _particleRadius, spacingRadius, latticeX, latticeY);
-  while (static_cast<int>(latticeX.size()) < count) {
-    spacingRadius *= LATTICE_SQUEEZE;
-    hexagonalLattice(_tankRadius - _particleRadius, spacingRadius, latticeX, latticeY);
-  }
+  while (latticePointCount(latticeRadius, spacingRadius) < count) spacingRadius *= LATTICE_SQUEEZE;
+  std::vector<float> latticeX, latticeY;
+  latticeX.reserve(latticePointCount(latticeRadius, spacingRadius));
+  latticeY.reserve(latticeX.capacity());
+  forEachLatticePoint(latticeRadius, spacingRadius, [&](float x, float y) {
+    latticeX.push_back(x);
+    latticeY.push_back(y);
+  });
 
   std::vector<int> order(latticeX.size());
   std::iota(order.begin(), order.end(), 0);

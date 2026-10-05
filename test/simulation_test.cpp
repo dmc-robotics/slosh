@@ -12,11 +12,40 @@
 
 namespace {
 
+// Fixed here so that re-exporting TunedSettings.h can't change what the checks expect.
+constexpr GaugeSettings TEST_SETTINGS{
+    .fullChargeFill = 1.4f,
+    .tankDiameter = 1.21f,
+    .gravityScale = 1.85f,
+    .gridResolution = 20,
+    .particleRadiusRatio = 0.4f,
+    .substeps = 1,
+    .pressureIterations = 8,
+    .separationIterations = 1,
+    .overRelaxation = 1.0f,
+    .flipRatio = 0.69f,
+    .driftCompensation = 0.5f,
+    .densityResolution = 16,
+    .smoothingPasses = 1,
+    .surfaceThreshold = 0.79f,
+    .surfaceSoftness = 0.02f,
+    .rimWidth = 0.42f,
+    .glowStrength = 0.61f,
+    .coreColor = 0x1BE7A0,
+    .rimColor = 0xB8FFE6,
+    .glowColor = 0x0E5A44,
+    .targetFrameRate = 30.0f,
+};
+
 int failures = 0;
 
 void check(bool condition, const char* description) {
   std::printf("%s %s\n", condition ? "pass" : "FAIL", description);
   if (!condition) failures++;
+}
+
+void simulate(FluidSimulation& simulation, const GaugeSettings& settings, float seconds) {
+  for (int frame = 0; frame < seconds * settings.targetFrameRate; frame++) simulation.step();
 }
 
 float centroidY(const FluidSimulation& simulation) {
@@ -46,33 +75,20 @@ void writeImage(const char* path, const std::vector<uint16_t>& pixels) {
   std::fclose(file);
 }
 
-void checkFuelLevel() {
-  check(fillLevelFromCellVoltage(3.0f) == 0.0f, "a flat cell is empty");
-  check(fillLevelFromCellVoltage(4.25f) == 1.0f, "a full cell is full");
-  check(std::abs(fillLevelFromCellVoltage(3.80f) - 0.4f) < 1e-4f, "a cell at 3.80 V has 40% left");
-  check(settleFillLevel(0.5f, 0.51f) == 0.5f, "small changes in the level are held");
-  check(settleFillLevel(0.5f, 0.45f) == 0.45f, "large changes in the level go through");
-  check(settleFillLevel(0.01f, 0.0f) == 0.0f && settleFillLevel(0.99f, 1.0f) == 1.0f, "empty and full always show");
-}
-
-}  // namespace
-
-int main(int argumentCount, char** arguments) {
+void checkSimulation(int argumentCount, char** arguments) {
   FluidSimulation simulation;
   simulation.setFillLevel(0.5f);
-  simulation.configure(TUNED_SETTINGS);
+  simulation.configure(TEST_SETTINGS);
   int halfFull = simulation.particleCount();
   check(std::abs(halfFull - simulation.particleCapacity() / 2) <= 1, "half fill seeds half the capacity");
-  check(std::abs(simulation.particleCapacity() - fullTankParticleCount(TUNED_SETTINGS)) < simulation.particleCapacity() / 20,
-        "lattice capacity matches the estimate");
 
-  for (int frame = 0; frame < 180; frame++) simulation.step();
+  simulate(simulation, TEST_SETTINGS, 3.0f);
   check(particlesInsideTank(simulation), "particles stay finite and inside the tank");
   check(centroidY(simulation) > simulation.tankCenter() + 0.1f * simulation.tankRadius(), "liquid settles at the bottom");
 
   // Tip the tank on its side: the liquid should run to the right.
   simulation.setGravity(9.80665f, 0.0f);
-  for (int frame = 0; frame < 180; frame++) simulation.step();
+  simulate(simulation, TEST_SETTINGS, 3.0f);
   float centroidX = 0.0f;
   for (int i = 0; i < simulation.particleCount(); i++) centroidX += simulation.particlePositionsX()[i];
   centroidX /= simulation.particleCount();
@@ -80,17 +96,21 @@ int main(int argumentCount, char** arguments) {
   check(particlesInsideTank(simulation), "particles stay inside after sloshing");
 
   simulation.setFillLevel(0.8f);
-  check(std::abs(simulation.particleCount() - static_cast<int>(0.8f * simulation.particleCapacity())) <= 1, "raising the fill level adds particles");
-  for (int frame = 0; frame < 60; frame++) simulation.step();
+  check(simulation.particleCount() == static_cast<int>(std::lround(0.8f * simulation.particleCapacity())), "raising the fill level adds particles");
+  simulate(simulation, TEST_SETTINGS, 1.0f);
   check(particlesInsideTank(simulation), "spawned particles stay inside");
   simulation.setFillLevel(0.2f);
-  check(simulation.particleCount() == static_cast<int>(std::lround(0.2f * simulation.particleCapacity())), "lowering the fill level removes particles");
+  int lowered = simulation.particleCount();
+  check(lowered == static_cast<int>(std::lround(0.2f * simulation.particleCapacity())), "lowering the fill level removes particles");
+  simulation.setFillLevel(NAN);
+  simulation.setFillLevel(0.2f);
+  check(simulation.particleCount() == lowered, "a NaN fill level is ignored");
 
   simulation.setGravity(0.0f, 9.80665f);
-  for (int frame = 0; frame < 120; frame++) simulation.step();
+  simulate(simulation, TEST_SETTINGS, 2.0f);
 
   FluidRenderer renderer;
-  renderer.configure(TUNED_SETTINGS, DISPLAY_SIZE);
+  renderer.configure(TEST_SETTINGS, DISPLAY_SIZE);
   renderer.prepare(simulation);
   std::vector<uint16_t> pixels(DISPLAY_SIZE * DISPLAY_SIZE);
   for (int row = 0; row < DISPLAY_SIZE; row += 16) {
@@ -100,12 +120,61 @@ int main(int argumentCount, char** arguments) {
   check(pixels[40 * DISPLAY_SIZE + DISPLAY_SIZE / 2] == 0, "top of the tank is dark");
   check(pixels[0] == 0, "corners outside the round display are black");
   if (argumentCount > 1) writeImage(arguments[1], pixels);
+}
+
+void checkSettings() {
+  check(settingsValid(TEST_SETTINGS), "test settings are valid");
+  GaugeSettings settings = TEST_SETTINGS;
+  settings.particleRadiusRatio = 0.0f;
+  check(!settingsValid(settings), "a zero particle radius is invalid");
+  settings = TEST_SETTINGS;
+  settings.densityResolution = 1;
+  check(!settingsValid(settings), "a one-cell density field is invalid");
+  settings = TEST_SETTINGS;
+  settings.particleRadiusRatio = 10.0f;
+  check(!settingsValid(settings), "particles wider than a cell are invalid");
+  settings = TEST_SETTINGS;
+  settings.targetFrameRate = NAN;
+  check(!settingsValid(settings), "a NaN frame rate is invalid");
+
+  check(estimatePerformance(TEST_SETTINGS, DISPLAY_SIZE).withinMemoryBudget, "test settings fit the heap budget");
+  settings = TEST_SETTINGS;
+  settings.gridResolution = 64;
+  settings.particleRadiusRatio = 0.2f;
+  settings.fullChargeFill = 4.0f;
+  check(!estimatePerformance(settings, DISPLAY_SIZE).withinMemoryBudget, "the densest slider settings are over the heap budget");
+}
+
+void checkFuelLevel() {
+  check(fillLevelFromCellVoltage(3.0f) == 0.0f, "a flat cell is empty");
+  check(fillLevelFromCellVoltage(4.25f) == 1.0f, "a full cell is full");
+  check(std::abs(fillLevelFromCellVoltage(3.80f) - 0.4f) < 1e-4f, "a cell at 3.80 V has 40% left");
+  check(settleFillLevel(0.5f, 0.51f) == 0.5f, "small changes in the level are held");
+  check(settleFillLevel(0.5f, 0.45f) == 0.45f, "large changes in the level go through");
+  check(settleFillLevel(0.01f, 0.0f) == 0.0f && settleFillLevel(0.99f, 1.0f) == 1.0f, "empty and full always show");
+}
+
+// The exported settings can change at any time, so only check that they run.
+void checkTunedSettings() {
+  FluidSimulation simulation;
+  simulation.setFillLevel(1.0f);
+  simulation.configure(TUNED_SETTINGS);
+  simulate(simulation, TUNED_SETTINGS, 2.0f);
+  check(particlesInsideTank(simulation), "tuned settings run and stay inside the tank");
 
   PerformanceEstimate estimate = estimatePerformance(TUNED_SETTINGS, DISPLAY_SIZE);
-  std::printf("estimate: simulation %.1f ms, render %.1f ms, transfer %.1f ms, %.0f fps\n", estimate.simulationTime * 1e3f,
-              estimate.renderTime * 1e3f, estimate.transferTime * 1e3f, estimate.frameRate);
+  std::printf("tuned estimate: simulation %.1f ms, render %.1f ms, transfer %.1f ms, %.0f fps, %d KB heap\n",
+              estimate.simulationTime * 1e3f, estimate.renderTime * 1e3f, estimate.transferTime * 1e3f, estimate.frameRate,
+              estimate.memory / 1000);
+}
 
+}  // namespace
+
+int main(int argumentCount, char** arguments) {
+  checkSimulation(argumentCount, arguments);
+  checkSettings();
   checkFuelLevel();
+  checkTunedSettings();
   std::printf(failures == 0 ? "all passed\n" : "%d failed\n", failures);
   return failures == 0 ? 0 : 1;
 }
