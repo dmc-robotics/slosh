@@ -24,7 +24,7 @@ class Gauge {
 
   void setGravity(float x, float y) { _simulation.setGravity(x, y); }
   void setFillLevel(float level) { _simulation.setFillLevel(level); }
-  void step(float timeStep) { _simulation.step(timeStep); }
+  void step() { _simulation.step(); }
   int particleCount() const { return _simulation.particleCount(); }
   PerformanceEstimate performance() const { return estimatePerformance(_settings, DISPLAY_SIZE); }
 

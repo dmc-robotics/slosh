@@ -188,14 +188,15 @@ const FIELDS = [
 ];
 
 const STANDARD_GRAVITY = 9.80665;
-const MAXIMUM_TIME_STEP = 1 / 30;
+const STEP_TOLERANCE = 0.9;              // step a little early so display timing jitter doesn't skip frames
 const MAXIMUM_DRAG_OFFSET = 80;          // px
 const SPRING_STIFFNESS = 180;            // 1/s², pulls the gauge back after a drag
 const SPRING_DAMPING = 14;               // 1/s
 const ROCK_AMPLITUDE = 25 * Math.PI / 180;
 const ROCK_PERIOD = 3;                   // s
-const GAUGE_DIAMETER = 1.75;             // in, the display's nominal size
-const SCREEN_WIDTH = 5120 / 218;         // in, Studio Display: 5120 pixels at 218 per inch
+const METERS_PER_INCH = 0.0254;
+const GAUGE_DIAMETER = 1.75 * METERS_PER_INCH;          // m, the display's nominal size
+const SCREEN_WIDTH = 5120 / 218 * METERS_PER_INCH;      // m, Studio Display: 5120 pixels at 218 per inch
 
 const toRadians = degrees => degrees * Math.PI / 180;
 const roundFloat = value => Number(value.toPrecision(6));
@@ -444,7 +445,8 @@ if (typeof createSloshModule === "undefined") {
       motion.x += motion.velocityX * timeStep;
       motion.y += motion.velocityY * timeStep;
     }
-    const metersPerPixel = settings.tankDiameter / frame.clientWidth;
+    // The gauge on screen stands for the real display, so a drag is real board motion.
+    const metersPerPixel = GAUGE_DIAMETER / frame.clientWidth;
     return {
       x: (motion.velocityX - previousVelocityX) / timeStep * metersPerPixel,
       y: (motion.velocityY - previousVelocityY) / timeStep * metersPerPixel,
@@ -453,20 +455,27 @@ if (typeof createSloshModule === "undefined") {
 
   const stats = document.getElementById("stats");
   let previousTime = performance.now();
-  let elapsed = 0;
+  let backlog = 0;  // s of real time not yet simulated
+  let simulatedTime = 0;
   let workTime = 0;
   let statsFrames = 0;
+  let statsStart = previousTime;
 
+  // Steps at the target frame rate, as the ESP32 does, so the liquid behaves the same.
   function animate(now) {
-    const timeStep = Math.min((now - previousTime) / 1000, MAXIMUM_TIME_STEP);
+    requestAnimationFrame(animate);
+    backlog += (now - previousTime) / 1000;
     previousTime = now;
-    elapsed += timeStep;
+    const timeStep = 1 / settings.targetFrameRate;
+    if (backlog < STEP_TOLERANCE * timeStep) return;
+    backlog = Math.min(backlog - timeStep, timeStep);
+    simulatedTime += timeStep;
 
     let angle = toRadians(Number(tilt.value));
-    if (autoRock.checked) angle += ROCK_AMPLITUDE * Math.sin(2 * Math.PI * elapsed / ROCK_PERIOD);
+    if (autoRock.checked) angle += ROCK_AMPLITUDE * Math.sin(2 * Math.PI * simulatedTime / ROCK_PERIOD);
     document.getElementById("tiltValue").textContent = `${Math.round(angle * 180 / Math.PI)}°`;
 
-    const acceleration = timeStep > 0 ? moveGauge(timeStep) : { x: 0, y: 0 };
+    const acceleration = moveGauge(timeStep);
     frame.style.transform = `translate(${motion.x}px, ${motion.y}px) rotate(${angle}rad)`;
 
     // The liquid feels gravity minus the tank's acceleration, rotated into display axes.
@@ -477,17 +486,18 @@ if (typeof createSloshModule === "undefined") {
     gauge.setGravity(worldX * cosine + worldY * sine, -worldX * sine + worldY * cosine);
 
     const workStart = performance.now();
-    gauge.step(timeStep);
+    gauge.step();
     image.data.set(gauge.render());
     workTime += performance.now() - workStart;
     context.putImageData(image, 0, 0);
 
     if (++statsFrames === 30) {
-      stats.textContent = `${gauge.particleCount()} particles · browser ${(workTime / statsFrames).toFixed(1)} ms per frame`;
+      const frameRate = statsFrames / ((now - statsStart) / 1000);
+      stats.textContent = `${gauge.particleCount()} particles · ${frameRate.toFixed(0)} fps · browser ${(workTime / statsFrames).toFixed(1)} ms per frame`;
       workTime = 0;
       statsFrames = 0;
+      statsStart = now;
     }
-    requestAnimationFrame(animate);
   }
 
   showSettings();

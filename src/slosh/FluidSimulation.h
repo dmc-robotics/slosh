@@ -18,7 +18,8 @@ class FluidSimulation {
   void setGravity(float x, float y);
   // Charge left, 0 to 1. Full charge holds settings.fullChargeFill of a tightly packed tank.
   void setFillLevel(float level);
-  void step(float timeStep);
+  // Advances one frame of 1 / settings.targetFrameRate, the same on the ESP32 and in the tuner.
+  void step();
 
   int particleCount() const { return _particleCount; }
   int particleCapacity() const { return _particleCapacity; }

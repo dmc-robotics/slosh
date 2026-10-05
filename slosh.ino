@@ -10,7 +10,8 @@
 #include "src/slosh/TunedSettings.h"
 
 constexpr int STRIP_HEIGHT = 16;  // rows per transfer; the CO5300 wants even row windows
-constexpr float MAXIMUM_TIME_STEP = 1.0f / 20.0f;
+// Each step simulates one frame at the tuned rate, so frames are held to that rate.
+constexpr uint32_t FRAME_PERIOD = 1e6f / TUNED_SETTINGS.targetFrameRate + 0.5f;  // µs
 constexpr uint8_t DISPLAY_BRIGHTNESS = 200;
 constexpr uint32_t REPORT_INTERVAL = 1000000;  // µs
 
@@ -60,18 +61,25 @@ void setup() {
 }
 
 void loop() {
+  uint32_t sinceLastFrame = micros() - previousFrameTime;
+  if (sinceLastFrame < FRAME_PERIOD) {
+    uint32_t wait = FRAME_PERIOD - sinceLastFrame;
+    delay(wait / 1000);
+    delayMicroseconds(wait % 1000);
+  }
   uint32_t frameStart = micros();
-  float timeStep = min((frameStart - previousFrameTime) * 1e-6f, MAXIMUM_TIME_STEP);
+  float elapsedTime = (frameStart - previousFrameTime) * 1e-6f;
   previousFrameTime = frameStart;
 
   float accelerationX, accelerationY;
   if (motionSensor.readLiquidAcceleration(accelerationX, accelerationY)) {
     simulation.setGravity(accelerationX, accelerationY);
   }
-  fuelSensor.update(timeStep);
+  fuelSensor.update(elapsedTime);
   simulation.setFillLevel(fuelSensor.fillLevel());
 
-  simulation.step(timeStep);
+  uint32_t simulationStart = micros();
+  simulation.step();
   uint32_t simulationDone = micros();
   renderer.prepare(simulation);
   timings.render += micros() - simulationDone;
@@ -86,7 +94,7 @@ void loop() {
     timings.transfer += micros() - transferStart;
   }
 
-  timings.simulation += simulationDone - frameStart;
+  timings.simulation += simulationDone - simulationStart;
   timings.frames++;
   reportTimings();
 }

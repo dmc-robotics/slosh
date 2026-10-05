@@ -157,9 +157,9 @@ void FluidSimulation::spawnParticle() {
   _velocityY[i] = 0.0f;
 }
 
-void FluidSimulation::step(float timeStep) {
-  if (_particleCount == 0 || timeStep <= 0.0f) return;
-  float substepTime = timeStep / _settings.substeps;
+void FluidSimulation::step() {
+  if (_particleCount == 0) return;
+  float substepTime = 1.0f / (_settings.targetFrameRate * _settings.substeps);
   for (int substep = 0; substep < _settings.substeps; substep++) {
     integrateParticles(substepTime);
     pushParticlesApart();

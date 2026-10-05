@@ -22,7 +22,7 @@ tuner/build.sh            # after changing anything in src/slosh/
 open tuner/index.html
 ```
 
-Drag the gauge to shake it. Tilt, rocking and fuel level are under **Test conditions**. The frame budget panel estimates whether the ESP32 can keep up. When it looks right, **Export TunedSettings.h** and replace `src/slosh/TunedSettings.h` with it.
+Drag the gauge to shake it; a drag stands for moving the real 1.75″ display that far. Tilt, rocking and fuel level are under **Test conditions**. The tuner steps the liquid at the target frame rate, as the firmware does, so it moves the same on both. The frame budget panel estimates whether the ESP32 can keep up. When it looks right, **Export TunedSettings.h** and replace `src/slosh/TunedSettings.h` with it.
 
 ## Firmware
 
@@ -34,7 +34,7 @@ grot build
 grot load
 ```
 
-Over USB serial the firmware prints `fps`, per-stage timings, bus voltage and fill level once a second as `key:value` lines that Gremlin plots. Use the timings to calibrate the constants in `src/slosh/PerformanceModel.cpp`.
+Over USB serial the firmware prints `fps`, per-stage timings, bus voltage and fill level once a second as `key:value` lines that Gremlin plots. Use the timings to calibrate the constants in `src/slosh/PerformanceModel.cpp`. If the device can't reach the target frame rate, the liquid plays in slow motion.
 
 ## Wiring
 

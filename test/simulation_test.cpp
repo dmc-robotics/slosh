@@ -66,13 +66,13 @@ int main(int argumentCount, char** arguments) {
   check(std::abs(simulation.particleCapacity() - fullTankParticleCount(TUNED_SETTINGS)) < simulation.particleCapacity() / 20,
         "lattice capacity matches the estimate");
 
-  for (int frame = 0; frame < 180; frame++) simulation.step(1.0f / 60.0f);
+  for (int frame = 0; frame < 180; frame++) simulation.step();
   check(particlesInsideTank(simulation), "particles stay finite and inside the tank");
   check(centroidY(simulation) > simulation.tankCenter() + 0.1f * simulation.tankRadius(), "liquid settles at the bottom");
 
   // Tip the tank on its side: the liquid should run to the right.
   simulation.setGravity(9.80665f, 0.0f);
-  for (int frame = 0; frame < 180; frame++) simulation.step(1.0f / 60.0f);
+  for (int frame = 0; frame < 180; frame++) simulation.step();
   float centroidX = 0.0f;
   for (int i = 0; i < simulation.particleCount(); i++) centroidX += simulation.particlePositionsX()[i];
   centroidX /= simulation.particleCount();
@@ -81,13 +81,13 @@ int main(int argumentCount, char** arguments) {
 
   simulation.setFillLevel(0.8f);
   check(std::abs(simulation.particleCount() - static_cast<int>(0.8f * simulation.particleCapacity())) <= 1, "raising the fill level adds particles");
-  for (int frame = 0; frame < 60; frame++) simulation.step(1.0f / 60.0f);
+  for (int frame = 0; frame < 60; frame++) simulation.step();
   check(particlesInsideTank(simulation), "spawned particles stay inside");
   simulation.setFillLevel(0.2f);
   check(simulation.particleCount() == static_cast<int>(std::lround(0.2f * simulation.particleCapacity())), "lowering the fill level removes particles");
 
   simulation.setGravity(0.0f, 9.80665f);
-  for (int frame = 0; frame < 120; frame++) simulation.step(1.0f / 60.0f);
+  for (int frame = 0; frame < 120; frame++) simulation.step();
 
   FluidRenderer renderer;
   renderer.configure(TUNED_SETTINGS, DISPLAY_SIZE);
