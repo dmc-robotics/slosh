@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slosh Tuner</title>
+<style>
+  :root {
+    --background: #0b0d10;
+    --panel: #14181d;
+    --panel-border: #232a31;
+    --text: #e6ebef;
+    --muted: #8a96a1;
+    --accent: #1be7a0;
+    --warning: #ffb547;
+    --danger: #ff6464;
+    --simulation: #4aa8ff;
+    --render: #b07cff;
+    --transfer: #5c6b78;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main {
+    display: grid;
+    grid-template-columns: minmax(320px, 520px) minmax(320px, 440px);
+    gap: 24px;
+    justify-content: center;
+    padding: 24px 16px;
+  }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: 0.02em; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 12px; }
+  .subtitle { color: var(--muted); margin: 0 0 20px; }
+  .stage { display: flex; flex-direction: column; gap: 16px; }
+  .gauge-area {
+    width: min(100%, 466px);
+    aspect-ratio: 1;
+    margin: 0 auto;
+    display: grid;
+    place-items: center;
+  }
+  .gauge-frame {
+    width: 100%;
+    aspect-ratio: 1;
+    touch-action: none;
+    cursor: grab;
+  }
+  .gauge-frame:active { cursor: grabbing; }
+  canvas {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: #000;
+    box-shadow: 0 0 0 10px #1a1f25, 0 0 0 11px #2b333b, 0 20px 60px rgba(0, 0, 0, 0.6);
+    display: block;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .controls { display: flex; flex-direction: column; gap: 16px; }
+  .field { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin-bottom: 12px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { font-weight: 500; }
+  .field output { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .field input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+  .field input[type=color] { width: 44px; height: 26px; border: 1px solid var(--panel-border); border-radius: 6px; background: none; padding: 0; }
+  .hint { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+  .toggle { display: flex; align-items: center; gap: 8px; }
+  .budget-bar {
+    position: relative;
+    display: flex;
+    height: 14px;
+    border-radius: 7px;
+    overflow: hidden;
+    background: #0d1014;
+    margin: 8px 0;
+  }
+  .budget-bar span { height: 100%; }
+  .budget-line { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: 12px; }
+  .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+  .status { font-weight: 600; }
+  .status.ok { color: var(--accent); }
+  .status.over { color: var(--danger); }
+  .note { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+  .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+  .buttons .note { flex-basis: 100%; }
+  .note.problem { color: var(--warning); }
+  button {
+    font: inherit;
+    color: var(--text);
+    background: #1e252c;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); color: #04140e; border-color: var(--accent); font-weight: 600; }
+  .stats { color: var(--muted); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
+  .error { color: var(--danger); padding: 24px; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <section class="stage">
+    <div>
+      <h1>Slosh Tuner</h1>
+      <p class="subtitle">Drag the gauge to shake it. Export the settings when the look is right.</p>
+    </div>
+    <div class="gauge-area">
+      <div class="gauge-frame" id="gaugeFrame"><canvas id="gauge" width="466" height="466"></canvas></div>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="panel">
+      <h2>Test conditions</h2>
+      <div class="field">
+        <label for="fillLevel">Fuel level</label><output id="fillLevelValue"></output>
+        <input type="range" id="fillLevel" min="0" max="100" step="1" value="60">
+      </div>
+      <div class="field">
+        <label for="tilt">Tilt</label><output id="tiltValue"></output>
+        <input type="range" id="tilt" min="-90" max="90" step="1" value="0">
+      </div>
+      <label class="toggle"><input type="checkbox" id="autoRock"> Rock back and forth</label>
+      <label class="toggle"><input type="checkbox" id="actualSize"> Actual size (1.75″ on a Studio Display at 100% zoom)</label>
+    </div>
+  </section>
+
+  <section class="controls">
+    <div class="panel">
+      <h2>ESP32 frame budget (estimate)</h2>
+      <div><span class="status" id="budgetStatus"></span></div>
+      <div class="budget-bar" id="budgetBar">
+        <span id="simulationBar" style="background: var(--simulation)"></span>
+        <span id="renderBar" style="background: var(--render)"></span>
+        <span id="transferBar" style="background: var(--transfer)"></span>
+        <div class="budget-line" id="budgetLine"></div>
+      </div>
+      <div class="legend" id="budgetLegend"></div>
+      <p class="note">The cost model is uncalibrated until it is fitted to timings the firmware prints over serial.</p>
+    </div>
+    <div id="settingsPanels"></div>
+    <div class="panel buttons">
+      <button class="primary" id="exportButton">Export TunedSettings.h</button>
+      <button id="copyButton">Copy</button>
+      <button id="importButton">Import…</button>
+      <button id="resetButton">Reset</button>
+      <input type="file" id="importFile" accept=".h,text/plain" hidden>
+      <p class="note" id="importStatus" hidden></p>
+    </div>
+  </section>
+</main>
+
+<script src="slosh.js"></script>
+<script>
+// Same order as GaugeSettings in src/slosh/GaugeSettings.h; the export relies on it.
+const FIELDS = [
+  { key: "fullChargeFill", group: "Level", label: "Fill at full charge", min: 0.5, max: 4, step: 0.05, hint: "Liquid at 100% charge, relative to a tightly packed full tank. Above 1 makes up for the liquid compressing under its own weight." },
+  { key: "tankDiameter", group: "Physics", label: "Tank diameter", unit: "m", min: 0.05, max: 2, step: 0.01, hint: "Virtual tank size. Bigger sloshes more slowly." },
+  { key: "gravityScale", group: "Physics", label: "Gravity scale", min: 0, max: 3, step: 0.05 },
+  { key: "gridResolution", group: "Physics", label: "Grid resolution", min: 12, max: 64, step: 2, integer: true, hint: "Cells across the tank. Sets the particle count; costly." },
+  { key: "particleRadiusRatio", group: "Physics", label: "Particle radius", min: 0.2, max: 0.45, step: 0.01, hint: "Fraction of a cell. Smaller means more particles." },
+  { key: "substeps", group: "Physics", label: "Substeps", min: 1, max: 4, step: 1, integer: true, hint: "Steadier at high speed; multiplies simulation cost." },
+  { key: "pressureIterations", group: "Physics", label: "Pressure iterations", min: 5, max: 80, step: 1, integer: true },
+  { key: "separationIterations", group: "Physics", label: "Separation iterations", min: 0, max: 4, step: 1, integer: true },
+  { key: "overRelaxation", group: "Physics", label: "Over-relaxation", min: 1, max: 1.98, step: 0.01 },
+  { key: "flipRatio", group: "Physics", label: "FLIP ratio", min: 0, max: 1, step: 0.01, hint: "0 is smooth and syrupy, 1 is lively and splashy." },
+  { key: "driftCompensation", group: "Physics", label: "Drift compensation", min: 0, max: 3, step: 0.05, hint: "Keeps the liquid from slowly losing volume." },
+  { key: "densityResolution", group: "Appearance", label: "Density resolution", min: 16, max: 96, step: 2, integer: true, hint: "Detail of the drawn surface." },
+  { key: "smoothingPasses", group: "Appearance", label: "Smoothing passes", min: 0, max: 4, step: 1, integer: true },
+  { key: "surfaceThreshold", group: "Appearance", label: "Surface threshold", min: 0.1, max: 1.5, step: 0.01 },
+  { key: "surfaceSoftness", group: "Appearance", label: "Surface softness", min: 0, max: 0.5, step: 0.01 },
+  { key: "rimWidth", group: "Appearance", label: "Rim width", min: 0, max: 1.5, step: 0.01 },
+  { key: "glowStrength", group: "Appearance", label: "Glow strength", min: 0, max: 1, step: 0.01 },
+  { key: "coreColor", group: "Appearance", label: "Core color", color: true },
+  { key: "rimColor", group: "Appearance", label: "Rim color", color: true },
+  { key: "glowColor", group: "Appearance", label: "Glow color", color: true },
+  { key: "targetFrameRate", group: "Performance", label: "Target frame rate", unit: "fps", min: 10, max: 60, step: 1 },
+];
+
+const STANDARD_GRAVITY = 9.80665;
+const MAXIMUM_TIME_STEP = 1 / 30;
+const MAXIMUM_DRAG_OFFSET = 80;          // px
+const SPRING_STIFFNESS = 180;            // 1/s², pulls the gauge back after a drag
+const SPRING_DAMPING = 14;               // 1/s
+const ROCK_AMPLITUDE = 25 * Math.PI / 180;
+const ROCK_PERIOD = 3;                   // s
+const GAUGE_DIAMETER = 1.75;             // in, the display's nominal size
+const SCREEN_WIDTH = 5120 / 218;         // in, Studio Display: 5120 pixels at 218 per inch
+
+const toRadians = degrees => degrees * Math.PI / 180;
+const roundFloat = value => Number(value.toPrecision(6));
+const colorToHex = color => "#" + color.toString(16).padStart(6, "0");
+const hexToColor = hex => parseInt(hex.slice(1), 16);
+
+if (typeof createSloshModule === "undefined") {
+  document.body.innerHTML = `<p class="error">Couldn't load slosh.js. Run tuner/build.sh first.</p>`;
+} else createSloshModule().then(module => {
+  const gauge = new module.Gauge();
+  const canvas = document.getElementById("gauge");
+  const context = canvas.getContext("2d");
+  const image = context.createImageData(module.DISPLAY_SIZE, module.DISPLAY_SIZE);
+  const frame = document.getElementById("gaugeFrame");
+
+  let settings = readSettings(gauge.settings());
+  const inputs = buildSettingsPanels();
+
+  function readSettings(source) {
+    const result = {};
+    for (const field of FIELDS) result[field.key] = field.integer || field.color ? source[field.key] : roundFloat(source[field.key]);
+    return result;
+  }
+
+  function formatValue(field, value) {
+    if (field.color) return colorToHex(value);
+    return field.unit ? `${value} ${field.unit}` : String(value);
+  }
+
+  function buildSettingsPanels() {
+    const container = document.getElementById("settingsPanels");
+    const panels = {};
+    const result = {};
+    for (const field of FIELDS) {
+      if (!panels[field.group]) {
+        const panel = document.createElement("div");
+        panel.className = "panel";
+        panel.style.marginBottom = "16px";
+        panel.innerHTML = `<h2>${field.group}</h2>`;
+        container.appendChild(panel);
+        panels[field.group] = panel;
+      }
+      const row = document.createElement("div");
+      row.className = "field";
+      const id = `setting-${field.key}`;
+      row.innerHTML = field.color
+        ? `<label for="${id}">${field.label}</label><input type="color" id="${id}">`
+        : `<label for="${id}">${field.label}</label><output></output>
+           <input type="range" id="${id}" min="${field.min}" max="${field.max}" step="${field.step}">`;
+      if (field.hint) row.insertAdjacentHTML("beforeend", `<span class="hint">${field.hint}</span>`);
+      panels[field.group].appendChild(row);
+
+      const input = row.querySelector("input");
+      const output = row.querySelector("output");
+      input.addEventListener("input", () => {
+        settings[field.key] = field.color ? hexToColor(input.value) : Number(input.value);
+        if (output) output.textContent = formatValue(field, settings[field.key]);
+        applySettings();
+      });
+      result[field.key] = { input, output, field };
+    }
+    return result;
+  }
+
+  function showSettings() {
+    for (const { input, output, field } of Object.values(inputs)) {
+      input.value = field.color ? colorToHex(settings[field.key]) : settings[field.key];
+      if (output) output.textContent = formatValue(field, settings[field.key]);
+    }
+  }
+
+  function applySettings() {
+    gauge.setSettings(settings);
+    gauge.setFillLevel(Number(fillLevel.value) / 100);
+    showPerformance();
+  }
+
+  function showPerformance() {
+    const estimate = gauge.performance();
+    const budget = 1 / settings.targetFrameRate;
+    const scale = Math.max(estimate.frameTime, budget * 1.25);
+    const percent = time => `${(time / scale) * 100}%`;
+    document.getElementById("simulationBar").style.width = percent(estimate.simulationTime);
+    document.getElementById("renderBar").style.width = percent(estimate.renderTime);
+    document.getElementById("transferBar").style.width = percent(estimate.transferTime);
+    document.getElementById("budgetLine").style.left = percent(budget);
+    const status = document.getElementById("budgetStatus");
+    status.className = `status ${estimate.withinBudget ? "ok" : "over"}`;
+    status.textContent = estimate.withinBudget
+      ? `${estimate.frameRate.toFixed(0)} fps, within the ${settings.targetFrameRate} fps target`
+      : `${estimate.frameRate.toFixed(0)} fps, too much for the ${settings.targetFrameRate} fps target`;
+    const milliseconds = time => `${(time * 1000).toFixed(1)} ms`;
+    document.getElementById("budgetLegend").innerHTML =
+      `<span><i style="background: var(--simulation)"></i>Simulation ${milliseconds(estimate.simulationTime)}</span>` +
+      `<span><i style="background: var(--render)"></i>Render ${milliseconds(estimate.renderTime)}</span>` +
+      `<span><i style="background: var(--transfer)"></i>Display transfer ${milliseconds(estimate.transferTime)}</span>`;
+  }
+
+  function settingsHeader() {
+    const lines = FIELDS.map(field => {
+      const value = settings[field.key];
+      let literal;
+      if (field.color) literal = "0x" + value.toString(16).toUpperCase().padStart(6, "0");
+      else if (field.integer) literal = String(value);
+      else literal = (Number.isInteger(value) ? value.toFixed(1) : String(value)) + "f";
+      return `    .${field.key} = ${literal},`;
+    });
+    return [
+      "#pragma once",
+      "",
+      "#include \"GaugeSettings.h\"",
+      "",
+      `// Exported from the Slosh tuner on ${new Date().toISOString().slice(0, 10)}.`,
+      "inline constexpr GaugeSettings TUNED_SETTINGS{",
+      ...lines,
+      "};",
+      "",
+    ].join("\n");
+  }
+
+  document.getElementById("exportButton").addEventListener("click", () => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([settingsHeader()], { type: "text/plain" }));
+    link.download = "TunedSettings.h";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  });
+
+  document.getElementById("copyButton").addEventListener("click", async event => {
+    try {
+      await navigator.clipboard.writeText(settingsHeader());
+      event.target.textContent = "Copied";
+    } catch {
+      event.target.textContent = "Copy failed";
+    }
+    setTimeout(() => (event.target.textContent = "Copy"), 1500);
+  });
+
+  // Reads the ".field = value," lines of an exported TunedSettings.h.
+  function importSettings(text) {
+    const found = {};
+    for (const match of text.replace(/\/\/.*$/gm, "").matchAll(/\.(\w+)\s*=\s*([^,}\s]+)/g)) found[match[1]] = match[2];
+
+    const next = { ...settings };
+    const imported = [];
+    const invalid = [];
+    for (const field of FIELDS) {
+      if (!(field.key in found)) continue;
+      const text = found[field.key];
+      const value = field.color ? parseInt(text, 16) : field.integer ? parseInt(text, 10) : parseFloat(text);
+      if (!Number.isFinite(value)) {
+        invalid.push(field.key);
+        continue;
+      }
+      next[field.key] = field.color || field.integer ? value : roundFloat(value);
+      imported.push(field.key);
+    }
+    const missing = FIELDS.filter(field => !(field.key in found)).map(field => field.key);
+    const unknown = Object.keys(found).filter(key => !FIELDS.some(field => field.key === key));
+    if (imported.length === 0) return { problems: ["No settings found in that file."] };
+
+    settings = next;
+    showSettings();
+    applySettings();
+    const problems = [];
+    if (missing.length) problems.push(`Not in the file, kept current: ${missing.join(", ")}.`);
+    if (invalid.length) problems.push(`Unreadable, kept current: ${invalid.join(", ")}.`);
+    if (unknown.length) problems.push(`Ignored unknown: ${unknown.join(", ")}.`);
+    return { imported: imported.length, problems };
+  }
+
+  const importFile = document.getElementById("importFile");
+  const importStatus = document.getElementById("importStatus");
+  document.getElementById("importButton").addEventListener("click", () => importFile.click());
+  importFile.addEventListener("change", async () => {
+    const file = importFile.files[0];
+    if (!file) return;
+    const result = importSettings(await file.text());
+    importFile.value = "";
+    importStatus.hidden = false;
+    importStatus.classList.toggle("problem", result.problems.length > 0);
+    importStatus.textContent = [result.imported ? `Imported ${result.imported} settings from ${file.name}.` : "", ...result.problems].join(" ").trim();
+  });
+
+  document.getElementById("resetButton").addEventListener("click", () => {
+    settings = readSettings(module.tunedSettings());
+    showSettings();
+    applySettings();
+  });
+
+  // Test conditions
+  const fillLevel = document.getElementById("fillLevel");
+  const tilt = document.getElementById("tilt");
+  const autoRock = document.getElementById("autoRock");
+  const actualSize = document.getElementById("actualSize");
+
+  // screen.width is in CSS pixels for whatever scaled resolution macOS is set to.
+  function applyGaugeSize() {
+    frame.style.width = actualSize.checked ? `${GAUGE_DIAMETER * screen.width / SCREEN_WIDTH}px` : "";
+  }
+  actualSize.addEventListener("change", applyGaugeSize);
+  window.addEventListener("resize", applyGaugeSize);
+  const showFillLevel = () => (document.getElementById("fillLevelValue").textContent = `${fillLevel.value}%`);
+  fillLevel.addEventListener("input", () => {
+    gauge.setFillLevel(Number(fillLevel.value) / 100);
+    showFillLevel();
+  });
+
+  // Dragging moves the gauge; its acceleration on screen shakes the liquid.
+  const drag = { active: false, startX: 0, startY: 0 };
+  const motion = { x: 0, y: 0, velocityX: 0, velocityY: 0 };
+  frame.addEventListener("pointerdown", event => {
+    drag.active = true;
+    drag.startX = event.clientX - motion.x;
+    drag.startY = event.clientY - motion.y;
+    frame.setPointerCapture(event.pointerId);
+  });
+  frame.addEventListener("pointermove", event => {
+    if (!drag.active) return;
+    let x = event.clientX - drag.startX;
+    let y = event.clientY - drag.startY;
+    const distance = Math.hypot(x, y);
+    if (distance > MAXIMUM_DRAG_OFFSET) {
+      x *= MAXIMUM_DRAG_OFFSET / distance;
+      y *= MAXIMUM_DRAG_OFFSET / distance;
+    }
+    drag.targetX = x;
+    drag.targetY = y;
+  });
+  const endDrag = () => (drag.active = false);
+  frame.addEventListener("pointerup", endDrag);
+  frame.addEventListener("pointercancel", endDrag);
+
+  // Returns the gauge's acceleration in m/s² (screen axes) for this frame.
+  function moveGauge(timeStep) {
+    const previousVelocityX = motion.velocityX;
+    const previousVelocityY = motion.velocityY;
+    if (drag.active && drag.targetX !== undefined) {
+      motion.velocityX = (drag.targetX - motion.x) / timeStep;
+      motion.velocityY = (drag.targetY - motion.y) / timeStep;
+      motion.x = drag.targetX;
+      motion.y = drag.targetY;
+    } else {
+      motion.velocityX += (-SPRING_STIFFNESS * motion.x - SPRING_DAMPING * motion.velocityX) * timeStep;
+      motion.velocityY += (-SPRING_STIFFNESS * motion.y - SPRING_DAMPING * motion.velocityY) * timeStep;
+      motion.x += motion.velocityX * timeStep;
+      motion.y += motion.velocityY * timeStep;
+    }
+    const metersPerPixel = settings.tankDiameter / frame.clientWidth;
+    return {
+      x: (motion.velocityX - previousVelocityX) / timeStep * metersPerPixel,
+      y: (motion.velocityY - previousVelocityY) / timeStep * metersPerPixel,
+    };
+  }
+
+  const stats = document.getElementById("stats");
+  let previousTime = performance.now();
+  let elapsed = 0;
+  let workTime = 0;
+  let statsFrames = 0;
+
+  function animate(now) {
+    const timeStep = Math.min((now - previousTime) / 1000, MAXIMUM_TIME_STEP);
+    previousTime = now;
+    elapsed += timeStep;
+
+    let angle = toRadians(Number(tilt.value));
+    if (autoRock.checked) angle += ROCK_AMPLITUDE * Math.sin(2 * Math.PI * elapsed / ROCK_PERIOD);
+    document.getElementById("tiltValue").textContent = `${Math.round(angle * 180 / Math.PI)}°`;
+
+    const acceleration = timeStep > 0 ? moveGauge(timeStep) : { x: 0, y: 0 };
+    frame.style.transform = `translate(${motion.x}px, ${motion.y}px) rotate(${angle}rad)`;
+
+    // The liquid feels gravity minus the tank's acceleration, rotated into display axes.
+    const worldX = -acceleration.x;
+    const worldY = STANDARD_GRAVITY - acceleration.y;
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    gauge.setGravity(worldX * cosine + worldY * sine, -worldX * sine + worldY * cosine);
+
+    const workStart = performance.now();
+    gauge.step(timeStep);
+    image.data.set(gauge.render());
+    workTime += performance.now() - workStart;
+    context.putImageData(image, 0, 0);
+
+    if (++statsFrames === 30) {
+      stats.textContent = `${gauge.particleCount()} particles · browser ${(workTime / statsFrames).toFixed(1)} ms per frame`;
+      workTime = 0;
+      statsFrames = 0;
+    }
+    requestAnimationFrame(animate);
+  }
+
+  showSettings();
+  showFillLevel();
+  applySettings();
+  requestAnimationFrame(animate);
+}).catch(error => {
+  document.body.innerHTML = `<p class="error">The tuner failed to start: ${error}</p>`;
+});
+</script>
+</body>
+</html>

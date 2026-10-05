@@ -1,0 +1,9 @@
+# Grot configuration for Slosh (Waveshare ESP32-S3-Touch-AMOLED-1.75)
+
+[basic]
+cli_path = "arduino-cli"
+fqbn = "esp32:esp32:esp32s3"  # run 'grot boards' for options
+sketch_path = "."
+
+[interface]
+baud_rate = 115200
