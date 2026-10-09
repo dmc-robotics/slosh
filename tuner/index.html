@@ -150,7 +150,7 @@
       </div>
       <div class="legend" id="budgetLegend"></div>
       <div><span class="status" id="memoryStatus"></span></div>
-      <p class="note">Core 1 simulates and renders (top) while core 0 sends the frame to the display (bottom). The cost model is fitted to one set of timings the firmware printed over serial.</p>
+      <p class="note">Core 1 simulates and renders (top) while core 0 sends the frame to the display (bottom). Frames are synced to the panel's 60 Hz refresh, so a frame that runs over two refreshes drops the rate from 30 to 20 fps. The cost model is fitted to one set of timings the firmware printed over serial.</p>
     </div>
     <div id="settingsPanels"></div>
     <div class="panel buttons">

@@ -1,6 +1,7 @@
 #include "PerformanceModel.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "FluidSimulation.h"
 
@@ -37,11 +38,17 @@ PerformanceEstimate estimatePerformance(const GaugeSettings& settings, int outpu
     ColumnSpan lit = litColumns(row, outputSize);
     litPixels += lit.end - lit.first;
   }
-  int sentPixels = 0;
-  for (int row = 0; row < outputSize; row += STRIP_HEIGHT) {
+  int sentPixels = 0, queuedSentPixels = 0, queuedLitPixels = 0;
+  for (int strip = 0, row = 0; row < outputSize; strip++, row += STRIP_HEIGHT) {
     int rows = std::min(STRIP_HEIGHT, outputSize - row);
     ColumnSpan sent = stripColumns(row, rows, outputSize);
     sentPixels += (sent.end - sent.first) * rows;
+    if (strip >= STRIP_COUNT) continue;
+    queuedSentPixels += (sent.end - sent.first) * rows;
+    for (int stripRow = row; stripRow < row + rows; stripRow++) {
+      ColumnSpan lit = litColumns(stripRow, outputSize);
+      queuedLitPixels += lit.end - lit.first;
+    }
   }
 
   PerformanceEstimate estimate{};
@@ -51,14 +58,19 @@ PerformanceEstimate estimatePerformance(const GaugeSettings& settings, int outpu
                       densityCells * (DENSITY_CELL_WALL_COST + settings.smoothingPasses * DENSITY_CELL_SMOOTH_COST);
   estimate.renderTime = prepareTime + litPixels * PIXEL_COST;
   estimate.transferTime = sentPixels * 2.0f / DISPLAY_BYTES_PER_SECOND;
-  // The display can only run ahead of core 1 by the queued strips, so it idles for whatever part of
-  // core 1's work between frames they don't cover.
-  float queuedTransferTime = estimate.transferTime * STRIP_COUNT * STRIP_HEIGHT / outputSize;
-  float betweenFrames = FRAME_OVERHEAD + estimate.simulationTime + prepareTime;
-  float displayTime = estimate.transferTime + std::max(betweenFrames - queuedTransferTime, 0.0f);
-  estimate.frameTime = std::max(FRAME_OVERHEAD + estimate.simulationTime + estimate.renderTime, displayTime);
+  // The display starts a frame only as a panel refresh begins, and core 1 can only render the
+  // queued strips ahead of it. The rest of the frame's rendering waits on the write, so core 1's
+  // next simulation step, and rendering the next frame's queued strips, have to fit after it. The
+  // top and bottom strips are alike, so the queued strips stand in for the last ones too.
+  float queuedTransferTime = queuedSentPixels * 2.0f / DISPLAY_BYTES_PER_SECOND;
+  float syncedCycle = estimate.transferTime - queuedTransferTime + FRAME_OVERHEAD + estimate.simulationTime +
+                      prepareTime + queuedLitPixels * PIXEL_COST;
+  float cycle = std::max({FRAME_OVERHEAD + estimate.simulationTime + estimate.renderTime, estimate.transferTime, syncedCycle});
+  int refreshes = std::max(refreshesPerFrame(settings.targetFrameRate), static_cast<int>(std::ceil(cycle * PANEL_REFRESH_RATE)));
+  estimate.frameTime = refreshes / PANEL_REFRESH_RATE;
   estimate.frameRate = 1.0f / estimate.frameTime;
-  estimate.withinFrameBudget = estimate.frameRate >= settings.targetFrameRate;
+  // A percent of slack for the refresh rate not dividing evenly into the target.
+  estimate.withinFrameBudget = estimate.frameRate >= 0.99f * settings.targetFrameRate;
 
   // The renderer keeps the density field, a scratch copy and one row.
   int rendererMemory = (2 * settings.densityResolution + 1) * settings.densityResolution * sizeof(float);

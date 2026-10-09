@@ -38,7 +38,8 @@ struct GaugeSettings {
   uint32_t glowColor;
 
   // Performance
-  float targetFrameRate;     // frames per second the ESP32 should sustain
+  float targetFrameRate;     // frames per second the ESP32 should sustain; each frame stays up for
+                             // whole 60 Hz panel refreshes, so 30, 20 or 15 are the rates it can hold
 };
 
 // False for settings that would hang or crash the simulation or renderer, or overflow its sizes.
