@@ -36,7 +36,7 @@ class Gauge {
     _renderer.prepare(_simulation);
     _renderer.renderRows(_pixels.data(), 0, DISPLAY_SIZE);
     for (size_t i = 0; i < _pixels.size(); i++) {
-      uint16_t pixel = _pixels[i];
+      uint16_t pixel = static_cast<uint16_t>((_pixels[i] << 8) | (_pixels[i] >> 8));  // from big-endian
       uint8_t red = pixel >> 11;
       uint8_t green = (pixel >> 5) & 63;
       uint8_t blue = pixel & 31;

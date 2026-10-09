@@ -1,20 +1,25 @@
 #include "PerformanceModel.h"
 
+#include <algorithm>
+
 #include "FluidSimulation.h"
 
 namespace {
 
-// Seconds per unit of work on the ESP32-S3 at 240 MHz. These are first guesses;
-// replace them with the per-stage timings the firmware prints over serial.
-constexpr float PARTICLE_STEP_COST = 1.5e-6f;       // integrate, walls, grid transfers, density
-constexpr float PARTICLE_SEPARATION_COST = 1.5e-6f; // per particle per separation iteration
-constexpr float CELL_PRESSURE_COST = 0.08e-6f;      // per grid cell per pressure iteration
+// Seconds per unit of work on the ESP32-S3 at 240 MHz, scaled to match the firmware's timings
+// for the 2026-10-05 tuned settings with 432 particles (simulation 8.95 ms, render 18.3 ms,
+// transfer 26.2 ms). One measurement can't separate the simulation's costs, so they keep their
+// first-guess proportions.
+constexpr float PARTICLE_STEP_COST = 8.4e-6f;        // integrate, walls, grid transfers, density
+constexpr float PARTICLE_SEPARATION_COST = 8.4e-6f;  // per particle per separation iteration
+constexpr float CELL_PRESSURE_COST = 0.45e-6f;       // per grid cell per pressure iteration
 constexpr float PARTICLE_SPLAT_COST = 0.2e-6f;
 constexpr float DENSITY_CELL_SMOOTH_COST = 0.1e-6f;  // per density cell per smoothing pass
 constexpr float DENSITY_CELL_WALL_COST = 0.1e-6f;    // per density cell, extending the liquid past the wall
-constexpr float PIXEL_COST = 0.06e-6f;
+constexpr float PIXEL_COST = 0.107e-6f;
 
-constexpr float DISPLAY_BYTES_PER_SECOND = DISPLAY_BUS_FREQUENCY * 4.0f / 8.0f;
+// Measured; the bus itself peaks at DISPLAY_BUS_FREQUENCY * 4 bits.
+constexpr float DISPLAY_BYTES_PER_SECOND = 16.6e6f;
 constexpr float CIRCLE_AREA_FRACTION = 0.785398f;
 
 }  // namespace
@@ -32,7 +37,11 @@ PerformanceEstimate estimatePerformance(const GaugeSettings& settings, int outpu
                         densityCells * (DENSITY_CELL_WALL_COST + settings.smoothingPasses * DENSITY_CELL_SMOOTH_COST) +
                         pixels * CIRCLE_AREA_FRACTION * PIXEL_COST;
   estimate.transferTime = pixels * 2.0f / DISPLAY_BYTES_PER_SECOND;
-  estimate.frameTime = estimate.simulationTime + estimate.renderTime + estimate.transferTime;
+  // The display can only run ahead of core 1 by the queued strips, so the simulation hides at most
+  // that much of the transfer.
+  float queuedTransferTime = estimate.transferTime * STRIP_COUNT * STRIP_HEIGHT / outputSize;
+  float displayTime = estimate.transferTime + std::max(estimate.simulationTime - queuedTransferTime, 0.0f);
+  estimate.frameTime = std::max(estimate.simulationTime + estimate.renderTime, displayTime);
   estimate.frameRate = 1.0f / estimate.frameTime;
   estimate.withinFrameBudget = estimate.frameRate >= settings.targetFrameRate;
 

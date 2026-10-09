@@ -67,7 +67,8 @@ bool particlesInsideTank(const FluidSimulation& simulation) {
 void writeImage(const char* path, const std::vector<uint16_t>& pixels) {
   FILE* file = std::fopen(path, "wb");
   std::fprintf(file, "P6 %d %d 255\n", DISPLAY_SIZE, DISPLAY_SIZE);
-  for (uint16_t pixel : pixels) {
+  for (uint16_t bigEndianPixel : pixels) {
+    uint16_t pixel = static_cast<uint16_t>((bigEndianPixel << 8) | (bigEndianPixel >> 8));
     unsigned char rgb[3] = {static_cast<unsigned char>((pixel >> 11) << 3), static_cast<unsigned char>(((pixel >> 5) & 63) << 2),
                             static_cast<unsigned char>((pixel & 31) << 3)};
     std::fwrite(rgb, 1, 3, file);

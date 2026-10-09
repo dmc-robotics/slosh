@@ -139,15 +139,18 @@
     <div class="panel">
       <h2>ESP32 frame budget (estimate)</h2>
       <div><span class="status" id="budgetStatus"></span></div>
-      <div class="budget-bar" id="budgetBar">
+      <div class="budget-bar" title="Core 1">
         <span id="simulationBar" style="background: var(--simulation)"></span>
         <span id="renderBar" style="background: var(--render)"></span>
+        <div class="budget-line"></div>
+      </div>
+      <div class="budget-bar" title="Core 0, alongside core 1">
         <span id="transferBar" style="background: var(--transfer)"></span>
-        <div class="budget-line" id="budgetLine"></div>
+        <div class="budget-line"></div>
       </div>
       <div class="legend" id="budgetLegend"></div>
       <div><span class="status" id="memoryStatus"></span></div>
-      <p class="note">The cost model is uncalibrated until it is fitted to timings the firmware prints over serial.</p>
+      <p class="note">Core 1 simulates and renders (top) while core 0 sends the frame to the display (bottom). The cost model is fitted to one set of timings the firmware printed over serial.</p>
     </div>
     <div id="settingsPanels"></div>
     <div class="panel buttons">
@@ -289,7 +292,7 @@ if (typeof createSloshModule === "undefined") {
     document.getElementById("simulationBar").style.width = percent(estimate.simulationTime);
     document.getElementById("renderBar").style.width = percent(estimate.renderTime);
     document.getElementById("transferBar").style.width = percent(estimate.transferTime);
-    document.getElementById("budgetLine").style.left = percent(budget);
+    for (const line of document.querySelectorAll(".budget-line")) line.style.left = percent(budget);
     const status = document.getElementById("budgetStatus");
     status.className = `status ${estimate.withinFrameBudget ? "ok" : "over"}`;
     status.textContent = estimate.withinFrameBudget

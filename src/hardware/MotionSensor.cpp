@@ -6,11 +6,6 @@ namespace {
 
 constexpr float STANDARD_GRAVITY = 9.80665f;
 
-// How the sensor's axes map onto the display's. Unverified: confirm on the hardware that
-// tilting the board to the right sends the liquid to the right, and flip these if not.
-constexpr float SENSOR_X_TO_DISPLAY_X = 1.0f;
-constexpr float SENSOR_Y_TO_DISPLAY_Y = -1.0f;
-
 }  // namespace
 
 bool MotionSensor::begin(TwoWire& wire) {
@@ -24,8 +19,9 @@ bool MotionSensor::begin(TwoWire& wire) {
 bool MotionSensor::readLiquidAcceleration(float& x, float& y) {
   float sensorX, sensorY, sensorZ;
   if (!_ready || !_sensor.getDataReady() || !_sensor.getAccelerometer(sensorX, sensorY, sensorZ)) return false;
-  // The accelerometer reads +1 g upward at rest; the liquid falls the other way.
-  x = -sensorX * SENSOR_X_TO_DISPLAY_X * STANDARD_GRAVITY;
-  y = -sensorY * SENSOR_Y_TO_DISPLAY_Y * STANDARD_GRAVITY;
+  // The sensor's +x points to the top of the display and its +y to the right (checked on the
+  // board). It reads +1 g upward at rest; the liquid falls the other way.
+  x = -sensorY * STANDARD_GRAVITY;
+  y = sensorX * STANDARD_GRAVITY;
   return true;
 }

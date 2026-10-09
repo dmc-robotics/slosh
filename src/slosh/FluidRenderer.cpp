@@ -34,7 +34,20 @@ void FluidRenderer::configure(const GaugeSettings& settings, int outputSize) {
   _densityCellsPerPixel = static_cast<float>(_resolution) / outputSize;
   _density.assign(_resolution * _resolution, 0.0f);
   _scratch.assign(_resolution * _resolution, 0.0f);
-  _rowValues.assign(_resolution, 0.0f);
+  _rowIndices.assign(_resolution + 1, 0.0f);
+  _segments.clear();
+  bool previousHeld = false;
+  for (int x = 0; x < outputSize; x++) {
+    float position = (x + 0.5f) * _densityCellsPerPixel - 0.5f;
+    bool held = position < 0.0f || position > _resolution - 1.0f;
+    float gridX = std::clamp(position, 0.0f, _resolution - 1.0f);
+    int cell = static_cast<int>(gridX);
+    if (_segments.empty() || _segments.back().cell != cell || held != previousHeld) {
+      _segments.push_back({x, x, cell, gridX - cell, held ? 0.0f : _densityCellsPerPixel});
+    }
+    _segments.back().endColumn = x + 1;
+    previousHeld = held;
+  }
   buildPalette();
 }
 
@@ -165,15 +178,26 @@ void FluidRenderer::renderRows(uint16_t* destination, int firstRow, int rowCount
     int y1 = std::min(y0 + 1, n - 1);
     float fractionY = gridY - y0;
     for (int x = 0; x < n; x++) {
-      _rowValues[x] = _density[y0 * n + x] + (_density[y1 * n + x] - _density[y0 * n + x]) * fractionY;
+      float value = _density[y0 * n + x] + (_density[y1 * n + x] - _density[y0 * n + x]) * fractionY;
+      _rowIndices[x] = std::clamp(value, 0.0f, PALETTE_MAXIMUM_DENSITY) * paletteScale;
     }
+    _rowIndices[n] = _rowIndices[n - 1];
 
-    for (int x = start; x < end; x++) {
-      float gridX = std::clamp((x + 0.5f) * _densityCellsPerPixel - 0.5f, 0.0f, n - 1.0f);
-      int x0 = static_cast<int>(gridX);
-      int x1 = std::min(x0 + 1, n - 1);
-      float value = _rowValues[x0] + (_rowValues[x1] - _rowValues[x0]) * (gridX - x0);
-      pixels[x] = _palette[std::min(static_cast<int>(value * paletteScale), PALETTE_SIZE - 1)];
+    // Steps a 16.16 fixed-point palette index along each segment: the inner loop runs for every
+    // lit pixel. Truncating toward zero keeps the index between the segment's end values.
+    for (const Segment& segment : _segments) {
+      int first = std::max(segment.firstColumn, start);
+      int last = std::min(segment.endColumn, end);
+      if (first >= last) continue;
+      float left = _rowIndices[segment.cell];
+      float change = _rowIndices[segment.cell + 1] - left;
+      float weight = segment.startWeight + (first - segment.firstColumn) * segment.weightStep;
+      int32_t index = static_cast<int32_t>((left + change * weight) * 65536.0f);
+      int32_t step = static_cast<int32_t>(change * segment.weightStep * 65536.0f);
+      for (int x = first; x < last; x++) {
+        pixels[x] = _palette[index >> 16];
+        index += step;
+      }
     }
   }
 }
@@ -194,6 +218,7 @@ void FluidRenderer::buildPalette() {
                      (channel(_settings.rimColor, shift) - channel(_settings.coreColor, shift)) * rim;
       color[component] = liquid * surface + channel(_settings.glowColor, shift) * glow;
     }
-    _palette[i] = toRgb565(color[0], color[1], color[2]);
+    uint16_t pixel = toRgb565(color[0], color[1], color[2]);
+    _palette[i] = static_cast<uint16_t>((pixel << 8) | (pixel >> 8));
   }
 }
