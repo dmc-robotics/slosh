@@ -8,13 +8,14 @@ namespace {
 
 // Seconds per unit of work on the ESP32-S3 at 240 MHz with -O2, fitted to the firmware's timings
 // for the 2026-10-05 tuned settings with a full tank of 720 particles (2026-10-08). The simulation
-// costs come from its per-phase timings (integrate 0.10 ms, separate 5.40, walls 0.14, to grid
-// 1.53, density 0.41, pressure 1.25, from grid 1.63). Render: density field 1.44 ms, 9.7 ms in
-// all, whose split between preparation costs keeps its first-guess proportions. Transfer 21.7 ms.
-// Separation is costed at a full tank's packing; looser liquid has fewer overlaps to resolve.
-constexpr float PARTICLE_STEP_COST = 5.3e-6f;        // integrate, walls, grid transfers, density
-constexpr float PARTICLE_SEPARATION_COST = 7.5e-6f;  // per particle per separation iteration
-constexpr float CELL_PRESSURE_COST = 0.32e-6f;       // per grid cell per pressure iteration
+// costs come from its per-phase timings while the board was being moved (integrate 0.10 ms,
+// separate 4.2, walls 0.12, to grid 1.51, density 0.41, pressure 1.12, from grid 1.63). Render:
+// density field 1.44 ms, 9.7 ms in all, whose split between preparation costs keeps its
+// first-guess proportions. Transfer 21.4 ms. Separation is costed at a full tank's packing under
+// strong gravity; looser liquid has fewer overlaps to resolve.
+constexpr float PARTICLE_STEP_COST = 5.2e-6f;        // integrate, walls, grid transfers, density
+constexpr float PARTICLE_SEPARATION_COST = 5.8e-6f;  // per particle per separation iteration
+constexpr float CELL_PRESSURE_COST = 0.29e-6f;       // per grid cell per pressure iteration
 constexpr float PARTICLE_SPLAT_COST = 1.7e-6f;
 constexpr float DENSITY_CELL_SMOOTH_COST = 0.4e-6f;  // per density cell per smoothing pass
 constexpr float DENSITY_CELL_WALL_COST = 0.4e-6f;    // per density cell, extending the liquid past the wall

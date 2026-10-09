@@ -15,11 +15,11 @@
 
 **Feasibility:** a frame-by-frame model of the strip pipeline (fitted to the board: it predicts 29.4 fps against 28.4 measured) says that with TE sync, rendering is paced by the display write, so the simulation has to fit in what's left of the two refreshes:
 
-| strip buffers | simulation limit | full tank (10.5 ms) |
+| strip buffers | simulation limit | full tank (9.1 ms) |
 |---|---|---|
-| 6 | 13.2 ms | about 2.5 ms spare |
-| 8 | 14.7 ms | about 4 ms spare |
-| 10 (now) | 16.3 ms | about 6 ms spare, likely ~5 ms on the board |
+| 6 | 13.2 ms | about 4 ms spare |
+| 8 | 14.7 ms | about 5.5 ms spare |
+| 10 (now) | 16.3 ms | about 7 ms spare, likely ~6 ms on the board |
 
 So it's feasible with the current 10 buffers, with a few milliseconds of margin at a full tank. Speeding up rendering doesn't help with TE sync; only a faster simulation or more buffers do. There's no RAM left for more buffers without PSRAM.
 
@@ -29,25 +29,26 @@ So it's feasible with the current 10 buffers, with a few milliseconds of margin 
 
 ## Frame-time headroom at a full tank
 
-**Status:** a full tank (720 particles) holds 30 fps, and the model puts it at about 37 fps unthrottled. `BENCH_FILL_LEVEL` in `src/hardware/PowerBusConfig.h` is 1.0, so the bench shows this worst case.
+**Status:** a full tank (720 particles) holds 30 fps, and the model puts it at about 39 fps unthrottled. `BENCH_FILL_LEVEL` in `src/hardware/PowerBusConfig.h` is 1.0, so the bench shows this worst case.
 
 **Measured on 2026-10-08** (2026-10-05 tuned settings, full tank, ms per frame):
 
-| | `-Os`, 6 buffers | `-O2`, 6 buffers | `-O2`, 10 buffers | fewer divisions (now) |
-|---|---|---|---|---|
-| fps | ~28 | 28.4 | 30.0 | 30.3 |
-| simulation (core 1) | 14.4 | 13.9 | 12.9–14.5 | 10.45 |
-| render (core 1) | 19.2 | 9.7 (1.4 of it preparing the density field) | 9.7 | 9.8 |
-| transfer (core 0, alongside) | 21.8 | 21.7 | 21.5 | 21.5 |
-| core 1 waiting on the display | 0.9 | 10.3 | 7.1 | 7.1 |
+| | `-Os`, 6 buffers | `-O2`, 6 buffers | `-O2`, 10 buffers | fewer divisions | fast inverse square root (now) |
+|---|---|---|---|---|---|
+| fps | ~28 | 28.4 | 30.0 | 30.3 | 30.2 |
+| simulation (core 1) | 14.4 | 13.9 | 12.9–14.5 | 10.45 | 8.9–9.2 |
+| render (core 1) | 19.2 | 9.7 (1.4 of it preparing the density field) | 9.7 | 9.8 | 9.7 |
+| transfer (core 0, alongside) | 21.8 | 21.7 | 21.5 | 21.5 | 21.4 |
+| core 1 waiting on the display | 0.9 | 10.3 | 7.1 | 7.1 | 7.2 |
+
+The last two columns aren't strictly comparable: the board lay nearly flat for "fewer divisions" and was being moved for the last one, which packs the liquid tighter and gives separation about 45% more overlaps to resolve (counted on the host).
 
 **What got it there:**
 - `build_opt.h` compiles the firmware with `-O2`. The core's default `-Os` turned the render loop into a register spill and two branches per pixel. `-O2` makes it a 6-instruction hardware loop, which halved rendering. The simulation only gained about 4%.
 - 10 strip buffers instead of 6, so the display keeps sending while the next simulation step runs. This cost 60 KB, so the tuner's heap budget dropped from 200 KB to 170 KB; `free_heap` reads about 148 KB.
 - Fewer float divisions in the simulation. Each one is a call to `__divsf3`, roughly 60 cycles even with the FPU's divide-assist instructions. Cell lookups multiply by a precomputed inverse cell size, the pressure solve reads `1 / open sides` from a table, and the grid transfer and wall collisions multiply by one reciprocal. That took 3.8 ms off.
+- A fast inverse square root (a bit-level estimate and two Newton steps, within 5e-6) for separating overlapping particles and for wall collisions, in place of a `sqrtf` call and a division each. At least 1.4 ms off. The first try gained nothing: the ESP32 core compiles with `-fno-builtin-memcpy`, so the `memcpy`s that reinterpret the float's bits became two more library calls; `__builtin_memcpy` fixed it.
 
-**Where the simulation time goes now** (the firmware prints these phases every second): separate 5.40 ms, from grid 1.63, to grid 1.53, pressure 1.25, density 0.41, walls 0.14, integrate 0.10. Separation is half of it: a full tank is tightly packed, so each particle overlaps several neighbors, and each overlap costs a `sqrtf` and a division. Options:
-- A fast inverse square root (a few multiplies, no library calls) would keep the behavior to about 0.1%. Probably 1.5–2.5 ms, unmeasured.
-- Handling each overlapping pair once instead of twice would roughly halve the work, but changes the behavior slightly, so the look would need rechecking in the tuner.
+**Where the simulation time goes now** (the firmware prints these phases every second): separate about 4.2 ms, from grid 1.63, to grid 1.51, pressure 1.12, density 0.41, walls 0.12, integrate 0.10. Separation is still the largest: a full tank is tightly packed, and each particle checks 15–23 neighbors per step and overlaps 4.5–6.5 of them. Handling each overlapping pair once instead of twice would roughly halve that work, but changes the behavior slightly, so the look would need rechecking in the tuner.
 
 Lighter tuner settings, such as a lower `fullChargeFill`, a larger `particleRadiusRatio` or fewer pressure iterations, also help, at some cost to the look.

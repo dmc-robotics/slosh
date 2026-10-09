@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <numeric>
 
 namespace {
@@ -14,6 +15,20 @@ constexpr int SPAWN_ATTEMPTS = 16;
 constexpr float LATTICE_SQUEEZE = 0.97f;  // spacing factor per try when seeding more than fit at rest
 // 1 / the number of open sides around a cell, indexed by that number (openness is 0 or 1 per side).
 constexpr float INVERSE_SIDE_COUNT[5] = {0.0f, 1.0f, 0.5f, 1.0f / 3.0f, 0.25f};
+
+// 1 / sqrt(value) for positive value without sqrtf or a division, which are each a library call on
+// the ESP32: the classic bit-level estimate refined by two Newton steps, within 5e-6. Not
+// std::bit_cast, since the ESP32 core builds as C++17, and __builtin_memcpy rather than memcpy,
+// which its -fno-builtin-memcpy would turn into two library calls.
+float inverseSquareRoot(float value) {
+  uint32_t bits;
+  __builtin_memcpy(&bits, &value, sizeof bits);
+  bits = 0x5F3759DFu - (bits >> 1);
+  float estimate;
+  __builtin_memcpy(&estimate, &bits, sizeof estimate);
+  for (int step = 0; step < 2; step++) estimate *= 1.5f - 0.5f * value * estimate * estimate;
+  return estimate;
+}
 
 // Particles sit on a hexagonal lattice at rest, two radii apart.
 float latticeSpacingX(float particleRadius) { return 2.0f * particleRadius; }
@@ -265,8 +280,7 @@ void FluidSimulation::pushParticlesApart() {
             float deltaY = _positionY[other] - _positionY[i];
             float distanceSquared = deltaX * deltaX + deltaY * deltaY;
             if (distanceSquared > minimumDistanceSquared || distanceSquared == 0.0f) continue;
-            float distance = std::sqrt(distanceSquared);
-            float scale = 0.5f * (minimumDistance - distance) / distance;
+            float scale = 0.5f * (minimumDistance * inverseSquareRoot(distanceSquared) - 1.0f);
             deltaX *= scale;
             deltaY *= scale;
             _positionX[i] -= deltaX;
@@ -287,7 +301,7 @@ void FluidSimulation::handleWallCollisions() {
     float offsetY = _positionY[i] - _tankCenter;
     float distanceSquared = offsetX * offsetX + offsetY * offsetY;
     if (distanceSquared <= limit * limit) continue;
-    float inverseDistance = 1.0f / std::sqrt(distanceSquared);
+    float inverseDistance = inverseSquareRoot(distanceSquared);
     float normalX = offsetX * inverseDistance;
     float normalY = offsetY * inverseDistance;
     _positionX[i] = _tankCenter + normalX * limit;
