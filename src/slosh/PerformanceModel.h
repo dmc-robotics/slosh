@@ -2,16 +2,11 @@
 
 #include <cstdint>
 
+#include "DisplayStrips.h"
 #include "GaugeSettings.h"
 
 // The CO5300 takes 16-bit pixels over a 4-bit-wide QSPI bus at this clock.
 constexpr int32_t DISPLAY_BUS_FREQUENCY = 40000000;  // Hz
-
-// The firmware streams each frame as strips of rows. Core 1 renders them while core 0 sends them to
-// the display, and strips still queued at the end of a frame keep the display busy while core 1
-// runs the next simulation step.
-constexpr int STRIP_HEIGHT = 16;  // rows; the CO5300 wants even row windows
-constexpr int STRIP_COUNT = 6;
 
 // Heap the gauge may use on an ESP32-S3 without PSRAM. A first guess; check it against the
 // free_heap the firmware prints over serial.

@@ -34,7 +34,7 @@ class Gauge {
   // Renders a frame and returns it as RGBA bytes, valid until the next call.
   val render() {
     _renderer.prepare(_simulation);
-    _renderer.renderRows(_pixels.data(), 0, DISPLAY_SIZE);
+    _renderer.renderRows(_pixels.data(), 0, DISPLAY_SIZE, 0, DISPLAY_SIZE);
     for (size_t i = 0; i < _pixels.size(); i++) {
       uint16_t pixel = static_cast<uint16_t>((_pixels[i] << 8) | (_pixels[i] >> 8));  // from big-endian
       uint8_t red = pixel >> 11;

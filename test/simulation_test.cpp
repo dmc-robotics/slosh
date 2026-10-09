@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <vector>
 
+#include "slosh/DisplayStrips.h"
 #include "slosh/FluidRenderer.h"
 #include "slosh/FluidSimulation.h"
 #include "slosh/FuelLevel.h"
@@ -114,12 +115,32 @@ void checkSimulation(int argumentCount, char** arguments) {
   renderer.configure(TEST_SETTINGS, DISPLAY_SIZE);
   renderer.prepare(simulation);
   std::vector<uint16_t> pixels(DISPLAY_SIZE * DISPLAY_SIZE);
-  for (int row = 0; row < DISPLAY_SIZE; row += 16) {
-    renderer.renderRows(pixels.data() + row * DISPLAY_SIZE, row, std::min(16, DISPLAY_SIZE - row));
+  for (int row = 0; row < DISPLAY_SIZE; row += STRIP_HEIGHT) {
+    renderer.renderRows(pixels.data() + row * DISPLAY_SIZE, row, std::min(STRIP_HEIGHT, DISPLAY_SIZE - row), 0, DISPLAY_SIZE);
   }
   check(pixels[(DISPLAY_SIZE - 40) * DISPLAY_SIZE + DISPLAY_SIZE / 2] != 0, "bottom of the tank is lit");
   check(pixels[40 * DISPLAY_SIZE + DISPLAY_SIZE / 2] == 0, "top of the tank is dark");
   check(pixels[0] == 0, "corners outside the round display are black");
+
+  bool stripsMatch = true;
+  bool stripsCoverCircle = true;
+  std::vector<uint16_t> strip(DISPLAY_SIZE * STRIP_HEIGHT);
+  for (int row = 0; row < DISPLAY_SIZE; row += STRIP_HEIGHT) {
+    int rows = std::min(STRIP_HEIGHT, DISPLAY_SIZE - row);
+    ColumnSpan sent = stripColumns(row, rows, DISPLAY_SIZE);
+    int columns = sent.end - sent.first;
+    stripsCoverCircle &= sent.first % 2 == 0 && columns % 2 == 0;
+    renderer.renderRows(strip.data(), row, rows, sent.first, columns);
+    for (int y = 0; y < rows; y++) {
+      ColumnSpan lit = litColumns(row + y, DISPLAY_SIZE);
+      stripsCoverCircle &= lit.first >= sent.first && lit.end <= sent.end;
+      for (int x = 0; x < columns; x++) {
+        stripsMatch &= strip[y * columns + x] == pixels[(row + y) * DISPLAY_SIZE + sent.first + x];
+      }
+    }
+  }
+  check(stripsMatch, "strips rendered with only their columns match whole rows");
+  check(stripsCoverCircle, "strip columns are even and cover every lit pixel");
   if (argumentCount > 1) writeImage(arguments[1], pixels);
 }
 

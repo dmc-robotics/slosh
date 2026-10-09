@@ -7,6 +7,7 @@
 #include "src/hardware/BoardPins.h"
 #include "src/hardware/FuelSensor.h"
 #include "src/hardware/MotionSensor.h"
+#include "src/slosh/DisplayStrips.h"
 #include "src/slosh/FluidRenderer.h"
 #include "src/slosh/FluidSimulation.h"
 #include "src/slosh/PerformanceModel.h"
@@ -37,6 +38,8 @@ struct Strip {
   alignas(4) uint16_t pixels[DISPLAY_SIZE * STRIP_HEIGHT];  // DMA reads it from here
   int row;
   int rows;
+  int column;
+  int columns;
 };
 Strip strips[STRIP_COUNT];
 QueueHandle_t freeStrips, renderedStrips;
@@ -98,7 +101,7 @@ void sendStrips(void*) {
     Strip* strip;
     xQueueReceive(renderedStrips, &strip, portMAX_DELAY);
     uint32_t start = micros();
-    display->draw16bitBeRGBBitmap(0, strip->row, strip->pixels, DISPLAY_SIZE, strip->rows);
+    display->draw16bitBeRGBBitmap(strip->column, strip->row, strip->pixels, strip->columns, strip->rows);
     transferTime += micros() - start;
     xQueueSend(freeStrips, &strip, portMAX_DELAY);
   }
@@ -129,13 +132,18 @@ void loop() {
   timings.render += micros() - simulationDone;
 
   for (int row = 0; row < DISPLAY_SIZE; row += STRIP_HEIGHT) {
+    int rows = min(STRIP_HEIGHT, DISPLAY_SIZE - row);
+    ColumnSpan columns = stripColumns(row, rows, DISPLAY_SIZE);
+    if (columns.first == columns.end) continue;
     uint32_t waitStart = micros();
     Strip* strip;
     xQueueReceive(freeStrips, &strip, portMAX_DELAY);
     uint32_t renderStart = micros();
     strip->row = row;
-    strip->rows = min(STRIP_HEIGHT, DISPLAY_SIZE - row);
-    renderer.renderRows(strip->pixels, row, strip->rows);
+    strip->rows = rows;
+    strip->column = columns.first;
+    strip->columns = columns.end - columns.first;
+    renderer.renderRows(strip->pixels, row, rows, strip->column, strip->columns);
     timings.displayWait += renderStart - waitStart;
     timings.render += micros() - renderStart;
     xQueueSend(renderedStrips, &strip, portMAX_DELAY);

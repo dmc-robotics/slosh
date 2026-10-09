@@ -33,7 +33,7 @@ Slosh is a "fuel gage" for robotics projects. It uses a Waveshare display to sho
 
 ## Structure
 
-- `src/slosh/`: shared core (simulation, renderer, cost model, settings, fuel level). Plain C++20, no Arduino or Emscripten includes: it compiles into both the firmware and the WASM tuner, so what is tuned is what runs.
+- `src/slosh/`: shared core (simulation, renderer, display strips, cost model, settings, fuel level). Plain C++20, no Arduino or Emscripten includes: it compiles into both the firmware and the WASM tuner, so what is tuned is what runs.
 - `src/hardware/`: firmware-only sensor and pin code. `slosh.ino`: main loop.
 - `tuner/`: `index.html` and `bindings.cpp`; `build.sh` produces `tuner/slosh.js` (gitignored, WASM embedded so the page opens from `file://`).
 - A new `GaugeSettings` field also goes in the embind fields in `tuner/bindings.cpp` and in `FIELDS` in `tuner/index.html`, in struct order (the export writes designated initializers). A `static_assert` in `bindings.cpp` and a startup check in the page catch omissions.

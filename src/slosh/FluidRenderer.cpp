@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "DisplayStrips.h"
+
 namespace {
 
 // In density cells: splatted cells this close to the wall come out thin and are refilled,
@@ -158,20 +160,18 @@ void FluidRenderer::smooth(std::vector<float>& field) {
   }
 }
 
-void FluidRenderer::renderRows(uint16_t* destination, int firstRow, int rowCount) {
+void FluidRenderer::renderRows(uint16_t* destination, int firstRow, int rowCount, int firstColumn, int columnCount) {
   int n = _resolution;
-  float half = 0.5f * _outputSize;
   float paletteScale = (PALETTE_SIZE - 1) / PALETTE_MAXIMUM_DENSITY;
 
   for (int row = firstRow; row < firstRow + rowCount; row++) {
-    uint16_t* pixels = destination + (row - firstRow) * _outputSize;
-    std::fill(pixels, pixels + _outputSize, 0);
+    uint16_t* pixels = destination + (row - firstRow) * columnCount;
+    std::fill(pixels, pixels + columnCount, 0);
 
-    float offsetY = row + 0.5f - half;
-    if (offsetY * offsetY >= half * half) continue;
-    float span = std::sqrt(half * half - offsetY * offsetY);
-    int start = std::max(static_cast<int>(half - span), 0);
-    int end = std::min(static_cast<int>(std::ceil(half + span)), _outputSize);
+    ColumnSpan lit = litColumns(row, _outputSize);
+    int start = std::max(lit.first, firstColumn);
+    int end = std::min(lit.end, firstColumn + columnCount);
+    if (start >= end) continue;
 
     float gridY = std::clamp((row + 0.5f) * _densityCellsPerPixel - 0.5f, 0.0f, n - 1.0f);
     int y0 = static_cast<int>(gridY);
@@ -194,8 +194,8 @@ void FluidRenderer::renderRows(uint16_t* destination, int firstRow, int rowCount
       float weight = segment.startWeight + (first - segment.firstColumn) * segment.weightStep;
       int32_t index = static_cast<int32_t>((left + change * weight) * 65536.0f);
       int32_t step = static_cast<int32_t>(change * segment.weightStep * 65536.0f);
-      for (int x = first; x < last; x++) {
-        pixels[x] = _palette[index >> 16];
+      for (uint16_t *pixel = pixels + (first - firstColumn), *stop = pixels + (last - firstColumn); pixel < stop; pixel++) {
+        *pixel = _palette[index >> 16];
         index += step;
       }
     }

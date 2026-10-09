@@ -13,9 +13,10 @@ class FluidRenderer {
   void configure(const GaugeSettings& settings, int outputSize);
   // Builds the density field for the current particle positions.
   void prepare(const FluidSimulation& simulation);
-  // Writes rowCount full-width rows of big-endian RGB565 pixels, starting at firstRow. That is
-  // the display's byte order, so the firmware sends rows to it without copying them.
-  void renderRows(uint16_t* destination, int firstRow, int rowCount);
+  // Writes rowCount rows of big-endian RGB565 pixels starting at firstRow, each holding columns
+  // firstColumn to firstColumn + columnCount, packed. Big-endian is the display's byte order, so
+  // the firmware sends strips to it without copying them.
+  void renderRows(uint16_t* destination, int firstRow, int rowCount, int firstColumn, int columnCount);
 
  private:
   static constexpr int PALETTE_SIZE = 256;
