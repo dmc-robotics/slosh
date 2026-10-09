@@ -12,6 +12,8 @@ Slosh is a "fuel gage" for robotics projects. It uses a Waveshare display to sho
 
  Docs: https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75
 
+ Orientation (checked on the board, 2026-10-08): in display coordinates (x right, y down, as drawn), the QMI8658's +x axis points to the top of the display and its +y axis to the right. `src/hardware/MotionSensor.cpp` maps it that way. The image is also a quarter turn from the board: with the USB port pointing down, the display's bottom edge is on the viewer's right.
+
 
  ## Simulation
 
