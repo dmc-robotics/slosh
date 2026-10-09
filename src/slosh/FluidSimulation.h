@@ -35,6 +35,14 @@ class FluidSimulation {
   // Area each particle covers when the liquid is at rest, m².
   float particleArea() const;
 
+  // Seconds spent in each phase of step() since the last resetProfile(), for calibrating
+  // PerformanceModel.cpp from the firmware's serial timings.
+  struct Profile {
+    float integrate, separate, walls, toGrid, density, pressure, fromGrid;
+  };
+  const Profile& profile() const { return _profile; }
+  void resetProfile() { _profile = {}; }
+
  private:
   enum CellType : uint8_t { FLUID, AIR, SOLID };
 
@@ -67,6 +75,7 @@ class FluidSimulation {
   // u is stored on each cell's left face and v on its top face.
   int _gridSize = 0;
   float _cellSize = 0.0f;
+  float _inverseCellSize = 0.0f;  // multiplying is much cheaper than dividing on the ESP32
   float _tankCenter = 0.0f;
   float _tankRadius = 0.0f;
   float _restDensity = 0.0f;
@@ -85,4 +94,6 @@ class FluidSimulation {
   int _separationGridSize = 0;
   float _separationInverseSpacing = 0.0f;
   std::vector<int> _separationCellCounts, _separationCellFirst, _separationParticleIds;
+
+  Profile _profile{};
 };

@@ -1,6 +1,7 @@
 #include "FluidSimulation.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <numeric>
 
@@ -11,6 +12,8 @@ constexpr float SQRT_THREE = 1.7320508f;
 constexpr float SEPARATION_SPACING_RATIO = 2.2f;  // hash cell size in particle radii
 constexpr int SPAWN_ATTEMPTS = 16;
 constexpr float LATTICE_SQUEEZE = 0.97f;  // spacing factor per try when seeding more than fit at rest
+// 1 / the number of open sides around a cell, indexed by that number (openness is 0 or 1 per side).
+constexpr float INVERSE_SIDE_COUNT[5] = {0.0f, 1.0f, 0.5f, 1.0f / 3.0f, 0.25f};
 
 // Particles sit on a hexagonal lattice at rest, two radii apart.
 float latticeSpacingX(float particleRadius) { return 2.0f * particleRadius; }
@@ -97,6 +100,7 @@ void FluidSimulation::setFillLevel(float level) {
 
 void FluidSimulation::buildGrid() {
   _cellSize = _settings.tankDiameter / _settings.gridResolution;
+  _inverseCellSize = 1.0f / _cellSize;
   _gridSize = _settings.gridResolution + 2;  // one wall cell beyond the tank on each side
   _tankRadius = 0.5f * _settings.tankDiameter;
   _tankCenter = 0.5f * _gridSize * _cellSize;
@@ -187,14 +191,28 @@ void FluidSimulation::spawnParticle() {
 void FluidSimulation::step() {
   if (_particleCount == 0) return;
   float substepTime = 1.0f / (_settings.targetFrameRate * _settings.substeps);
+  using Clock = std::chrono::steady_clock;
+  Clock::time_point mark = Clock::now();
+  auto lap = [&](float& total) {
+    Clock::time_point now = Clock::now();
+    total += std::chrono::duration<float>(now - mark).count();
+    mark = now;
+  };
   for (int substep = 0; substep < _settings.substeps; substep++) {
     integrateParticles(substepTime);
+    lap(_profile.integrate);
     pushParticlesApart();
+    lap(_profile.separate);
     handleWallCollisions();
+    lap(_profile.walls);
     transferVelocitiesToGrid();
+    lap(_profile.toGrid);
     updateParticleDensity();
+    lap(_profile.density);
     solveIncompressibility(substepTime);
+    lap(_profile.pressure);
     transferVelocitiesFromGrid();
+    lap(_profile.fromGrid);
   }
 }
 
@@ -269,9 +287,9 @@ void FluidSimulation::handleWallCollisions() {
     float offsetY = _positionY[i] - _tankCenter;
     float distanceSquared = offsetX * offsetX + offsetY * offsetY;
     if (distanceSquared <= limit * limit) continue;
-    float distance = std::sqrt(distanceSquared);
-    float normalX = offsetX / distance;
-    float normalY = offsetY / distance;
+    float inverseDistance = 1.0f / std::sqrt(distanceSquared);
+    float normalX = offsetX * inverseDistance;
+    float normalY = offsetY * inverseDistance;
     _positionX[i] = _tankCenter + normalX * limit;
     _positionY[i] = _tankCenter + normalY * limit;
     float outward = _velocityX[i] * normalX + _velocityY[i] * normalY;
@@ -284,14 +302,13 @@ void FluidSimulation::handleWallCollisions() {
 
 FluidSimulation::Stencil FluidSimulation::stencil(float x, float y, float offsetX, float offsetY) const {
   int n = _gridSize;
-  float inverseCellSize = 1.0f / _cellSize;
   x = std::clamp(x, _cellSize, (n - 1) * _cellSize) - offsetX;
   y = std::clamp(y, _cellSize, (n - 1) * _cellSize) - offsetY;
 
-  int x0 = std::min(static_cast<int>(x * inverseCellSize), n - 2);
-  int y0 = std::min(static_cast<int>(y * inverseCellSize), n - 2);
-  float fractionX = (x - x0 * _cellSize) * inverseCellSize;
-  float fractionY = (y - y0 * _cellSize) * inverseCellSize;
+  int x0 = std::min(static_cast<int>(x * _inverseCellSize), n - 2);
+  int y0 = std::min(static_cast<int>(y * _inverseCellSize), n - 2);
+  float fractionX = (x - x0 * _cellSize) * _inverseCellSize;
+  float fractionY = (y - y0 * _cellSize) * _inverseCellSize;
   int x1 = std::min(x0 + 1, n - 2);
   int y1 = std::min(y0 + 1, n - 2);
   float remainderX = 1.0f - fractionX;
@@ -302,8 +319,8 @@ FluidSimulation::Stencil FluidSimulation::stencil(float x, float y, float offset
 }
 
 int FluidSimulation::cellIndex(float x, float y) const {
-  int cellX = std::clamp(static_cast<int>(x / _cellSize), 0, _gridSize - 1);
-  int cellY = std::clamp(static_cast<int>(y / _cellSize), 0, _gridSize - 1);
+  int cellX = std::clamp(static_cast<int>(x * _inverseCellSize), 0, _gridSize - 1);
+  int cellY = std::clamp(static_cast<int>(y * _inverseCellSize), 0, _gridSize - 1);
   return cellX * _gridSize + cellY;
 }
 
@@ -383,7 +400,7 @@ void FluidSimulation::solveIncompressibility(float timeStep) {
         float compression = _particleDensity[center] - _restDensity;
         if (compression > 0.0f) divergence -= driftScale * compression;
 
-        float pressure = -divergence / openness * _settings.overRelaxation;
+        float pressure = -divergence * INVERSE_SIDE_COUNT[static_cast<int>(openness)] * _settings.overRelaxation;
         _u[center] -= _openness[left] * pressure;
         _u[right] += _openness[right] * pressure;
         _v[center] -= _openness[top] * pressure;
@@ -413,8 +430,9 @@ void FluidSimulation::transferVelocitiesFromGrid() {
       correction += weight * (field[face] - previousField[face]);
     }
     if (weightSum == 0.0f) return;
-    picVelocity /= weightSum;
-    float flipVelocity = velocity + correction / weightSum;
+    float inverseWeightSum = 1.0f / weightSum;
+    picVelocity *= inverseWeightSum;
+    float flipVelocity = velocity + correction * inverseWeightSum;
     velocity = (1.0f - flipRatio) * picVelocity + flipRatio * flipVelocity;
   };
 

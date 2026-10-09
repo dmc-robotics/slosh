@@ -4,7 +4,7 @@
 // the display, and strips still queued at the end of a frame keep the display busy while core 1
 // runs the next simulation step.
 constexpr int STRIP_HEIGHT = 16;  // rows; the CO5300 wants even windows
-constexpr int STRIP_COUNT = 6;
+constexpr int STRIP_COUNT = 10;  // 150 KB; fewer leave the display idle while a full tank simulates
 
 // Columns [first, end); empty when first == end.
 struct ColumnSpan {

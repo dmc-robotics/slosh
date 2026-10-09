@@ -2,47 +2,52 @@
 
 ## Tearing during heavy sloshing
 
-**Seen:** when the gauge is shaken hard, the image occasionally shows a horizontal "dislocation": a line with the two sides out of step. Subtle, and only with lots of movement.
+**Seen:** when the gauge is shaken hard, the image occasionally shows a horizontal "dislocation": a line with the two sides out of step. Subtle, and only with lots of movement. Likely more visible at a full tank, where more of the screen changes between frames.
 
-**Cause:** the CO5300 refreshes the panel from its memory at about 60 Hz (about 16 ms per top-to-bottom scan) while the firmware writes each frame over about 22 ms, with nothing tying the two together. When a scan passes the row being written, the panel shows the new frame above that row and the old one below it.
+**Cause:** the CO5300 refreshes the panel from its memory at 60 Hz (about 16.6 ms per top-to-bottom scan) while the firmware writes each frame over about 21.5 ms, with nothing tying the two together. When a scan passes the row being written, the panel shows the new frame above that row and the old one below it.
 
-**Fix:** the panel's TE (tearing effect) output is wired to GPIO13 (board schematic: `LCD_TE`). Arduino_GFX leaves it off: `TEARON` (0x35) is commented out of `co5300_init_operations`. Send `TEARON`, count TE edges in an interrupt, and have the display task on core 0 start each frame's first strip at a fixed point in the refresh. Writes have to start a little behind the scan: the narrow top and bottom strips go out faster than the panel scans, so starting level with it would let the write catch up near the top. Setting the tear scan line (0x44) is one way to place that point. Use a timeout so a missing TE signal can't freeze the gauge.
+**Measured on 2026-10-08** with a diagnostic build (since removed):
+- The panel's TE (tearing effect) output is wired to GPIO13 (`LCD_TE` on the board schematic). Arduino_GFX leaves it off: `TEARON` (0x35) is commented out of `co5300_init_operations`. Sending `0x35, 0x00` (V-blank only) with `displayBus->writeC8D8` inside `beginWrite`/`endWrite` turns it on.
+- The refresh rate is 60.1 Hz, so two refreshes per frame gives 30 fps and the liquid's speed stays right.
+- TE goes high for 0.62 ms each refresh: the vertical blanking interval. The falling edge marks the start of a scan.
 
-**Unknowns to measure first:** the actual refresh rate, which TE edge marks the start of a scan, and how far behind the scan to start writing.
+**Fix:** count TE falling edges in an interrupt, and have the display task on core 0 start each frame's first strip a fixed time after a falling edge, every second refresh. Writes have to start behind the scan: the narrow top and bottom strips go out faster than the panel scans, so starting level with it would let the write catch up near the top. The frame's writes run 5.9 ms ahead of or behind a steady scan at most, leaving about 10 ms of slack in where to start them, so the exact offset isn't critical. Use a timeout so a missing TE signal can't freeze the gauge, and pace frames by TE instead of the `FRAME_PERIOD` timer, or the two clocks will drift against each other.
+
+**Feasibility:** a frame-by-frame model of the strip pipeline (fitted to the board: it predicts 29.4 fps against 28.4 measured) says that with TE sync, rendering is paced by the display write, so the simulation has to fit in what's left of the two refreshes:
+
+| strip buffers | simulation limit | full tank (10.5 ms) |
+|---|---|---|
+| 6 | 13.2 ms | about 2.5 ms spare |
+| 8 | 14.7 ms | about 4 ms spare |
+| 10 (now) | 16.3 ms | about 6 ms spare, likely ~5 ms on the board |
+
+So it's feasible with the current 10 buffers, with a few milliseconds of margin at a full tank. Speeding up rendering doesn't help with TE sync; only a faster simulation or more buffers do. There's no RAM left for more buffers without PSRAM.
 
 **Costs:**
-- Frames land on whole refreshes, so a frame that overruns two refreshes waits for a third: a 50 ms hitch instead of a slightly late frame. A full tank is already close to the 33 ms budget.
-- Waiting for the refresh idles the display and fills the strip queue, so some of the overlap that reaches 30 fps is lost.
-- The simulation steps a fixed 1/30 s per frame, so the liquid's speed follows the panel's real refresh rate (58 Hz would run about 3% slow). A tuner target that doesn't divide the refresh rate rounds down.
-- The cost model in `PerformanceModel.cpp` would need to round frame times up to whole refreshes.
+- Frames land on whole refreshes, so a frame that overruns two refreshes waits for a third: a 50 ms hitch instead of a slightly late frame. Heavier tuner settings than the current ones would hitch at a full tank.
+- The cost model in `PerformanceModel.cpp` would need to round frame times up to whole refreshes and warn about the simulation limit above.
 
-**Before fixing:** free up frame time first (see *A full tank runs below 30 fps* below), so the gauge sits well inside two refreshes even with a full tank.
+## Frame-time headroom at a full tank
 
-## A full tank runs below 30 fps
+**Status:** a full tank (720 particles) holds 30 fps, and the model puts it at about 37 fps unthrottled. `BENCH_FILL_LEVEL` in `src/hardware/PowerBusConfig.h` is 1.0, so the bench shows this worst case.
 
-**Seen:** with a full tank (720 particles, bench level 1.0) the gauge runs at 27.5–28.2 fps against the 30 fps target. The simulation still steps 1/30 s per frame, so the liquid moves about 7% slower than real time. At 60% fill (432 particles) it holds 30 fps.
+**Measured on 2026-10-08** (2026-10-05 tuned settings, full tank, ms per frame):
 
-**Measured on 2026-10-08** (2026-10-05 tuned settings, ms per frame):
+| | `-Os`, 6 buffers | `-O2`, 6 buffers | `-O2`, 10 buffers | fewer divisions (now) |
+|---|---|---|---|---|
+| fps | ~28 | 28.4 | 30.0 | 30.3 |
+| simulation (core 1) | 14.4 | 13.9 | 12.9–14.5 | 10.45 |
+| render (core 1) | 19.2 | 9.7 (1.4 of it preparing the density field) | 9.7 | 9.8 |
+| transfer (core 0, alongside) | 21.8 | 21.7 | 21.5 | 21.5 |
+| core 1 waiting on the display | 0.9 | 10.3 | 7.1 | 7.1 |
 
-| | 60% | 100% |
-|---|---|---|
-| fps | 30.0 | ~28 |
-| simulation (core 1) | 8.8 | 14.4 |
-| render (core 1) | 18.8 | 19.2 |
-| transfer (core 0, alongside) | 21.7 | 21.8 |
-| core 1 waiting on the display | 1.0 | 0.9 |
+**What got it there:**
+- `build_opt.h` compiles the firmware with `-O2`. The core's default `-Os` turned the render loop into a register spill and two branches per pixel. `-O2` makes it a 6-instruction hardware loop, which halved rendering. The simulation only gained about 4%.
+- 10 strip buffers instead of 6, so the display keeps sending while the next simulation step runs. This cost 60 KB, so the tuner's heap budget dropped from 200 KB to 170 KB; `free_heap` reads about 148 KB.
+- Fewer float divisions in the simulation. Each one is a call to `__divsf3`, roughly 60 cycles even with the FPU's divide-assist instructions. Cell lookups multiply by a precomputed inverse cell size, the pressure solve reads `1 / open sides` from a table, and the grid transfer and wall collisions multiply by one reciprocal. That took 3.8 ms off.
 
-Core 1 is the bottleneck: about 34.5 ms of the 35.8 ms frame at a full tank. The other ~1.3 ms is untimed per-frame work (the accelerometer read over I2C, the fuel sensor update, loop overhead). The display isn't the limit now that the corners are skipped.
+**Where the simulation time goes now** (the firmware prints these phases every second): separate 5.40 ms, from grid 1.63, to grid 1.53, pressure 1.25, density 0.41, walls 0.14, integrate 0.10. Separation is half of it: a full tank is tightly packed, so each particle overlaps several neighbors, and each overlap costs a `sqrtf` and a division. Options:
+- A fast inverse square root (a few multiplies, no library calls) would keep the behavior to about 0.1%. Probably 1.5–2.5 ms, unmeasured.
+- Handling each overlapping pair once instead of twice would roughly halve the work, but changes the behavior slightly, so the look would need rechecking in the tuner.
 
-**The tuner is optimistic:** it estimates 31 fps for a full tank. Its simulation (13.8 ms) and render (18.5 ms) estimates are close, but `PerformanceModel.cpp` leaves out the untimed overhead and core 1's wait on the display, about 2 ms per frame together. Add a measured per-frame overhead so the budget warning matches the board.
-
-**Most promising fix: faster rendering.** Rendering is the largest cost, and it barely changes with fill. The inner loop of `FluidRenderer::renderRows` compiles to 7 instructions per pixel, yet costs about 27 cycles per pixel (19 ms for ~170k lit pixels at 240 MHz), so something other than the arithmetic dominates. Suspects to check:
-- memory contention with the display DMA reading the other strip buffers
-- instruction-cache misses (the code runs from flash)
-- the per-row work: clearing each row, the density row interpolation, and setting up about 17 segments per row
-
-Time `prepare` separately from `renderRows` and try `IRAM_ATTR` on the hot loop to tell these apart. Saving 5–10 ms would give a full tank real headroom, and that headroom is also what the tearing fix needs.
-
-**Other levers:** lighter tuner settings, such as a lower `fullChargeFill`, a larger `particleRadiusRatio` (fewer particles) or fewer pressure iterations, at some cost to the look. The simulation also costs more per particle than first guessed: 8.8 ms for 432 particles is about 20 µs each. It hasn't been profiled.
-
-**Note:** `BENCH_FILL_LEVEL` in `src/hardware/PowerBusConfig.h` is 1.0, so the bench shows this worst case.
+Lighter tuner settings, such as a lower `fullChargeFill`, a larger `particleRadiusRatio` or fewer pressure iterations, also help, at some cost to the look.

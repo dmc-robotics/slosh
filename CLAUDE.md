@@ -43,6 +43,7 @@ Slosh is a "fuel gage" for robotics projects. It uses a Waveshare display to sho
 
 ```zsh
 grot build                                   # firmware; FQBN esp32:esp32:esp32s3, no PSRAM needed
+grot clean                                   # after editing build_opt.h (-O2), which the build cache ignores
 tuner/build.sh                               # WASM tuner (needs emscripten)
 c++ -std=c++20 -O2 -Isrc src/slosh/*.cpp test/simulation_test.cpp -o /tmp/simulation_test && /tmp/simulation_test
 ```

@@ -158,6 +158,8 @@ void reportTimings() {
   uint32_t now = micros();
   if (now - timings.windowStart < REPORT_INTERVAL) return;
   float frames = timings.frames;
+  const FluidSimulation::Profile& phases = simulation.profile();
+  float phaseScale = 1000.0f / frames;  // s in total to ms per frame
   // transfer_ms runs on core 0 alongside the rest, so the frame takes roughly the larger of
   // transfer_ms and simulation_ms + render_ms + display_wait_ms.
   console.printf(
@@ -166,6 +168,12 @@ void reportTimings() {
       frames * 1e6f / (now - timings.windowStart), timings.simulation / frames / 1000.0f, timings.render / frames / 1000.0f,
       transferTime.exchange(0) / frames / 1000.0f, timings.displayWait / frames / 1000.0f, simulation.particleCount(),
       ESP.getFreeHeap(), simulation.gravityX(), simulation.gravityY(), fuelSensor.busVoltage(), fuelSensor.fillLevel());
+  // Where the simulation step's time goes, for calibrating the cost model.
+  console.printf("integrate_ms:%.2f,separate_ms:%.2f,walls_ms:%.2f,to_grid_ms:%.2f,density_ms:%.2f,pressure_ms:%.2f,from_grid_ms:%.2f\n",
+                 phases.integrate * phaseScale, phases.separate * phaseScale, phases.walls * phaseScale,
+                 phases.toGrid * phaseScale, phases.density * phaseScale, phases.pressure * phaseScale,
+                 phases.fromGrid * phaseScale);
+  simulation.resetProfile();
   timings = FrameTimings{};
   timings.windowStart = now;
 }

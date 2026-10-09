@@ -34,11 +34,13 @@ grot build
 grot load
 ```
 
+`build_opt.h` compiles the firmware with `-O2` instead of the core's `-Os`, which halves rendering time. The build cache doesn't notice changes to it, so after editing it run `grot clean` before `grot build`.
+
 `.grotconfig` is local and gitignored, since it holds this machine's serial port. Create it with `grot init`, then set `fqbn = "esp32:esp32:esp32s3"`, `port` and `sketch_path = "."` under `[basic]`.
 
 The QMI8658 accelerometer is mounted a quarter turn from the display: its +x axis points to the display's top and its +y axis to the right (checked on the board; mapped in `src/hardware/MotionSensor.cpp`). The display's image is turned too: with the USB port pointing down, its bottom edge is on your right. The liquid follows real gravity either way.
 
-Over USB serial the firmware prints `fps`, per-stage timings, particle count, free heap, gravity, bus voltage and fill level once a second as `key:value` lines that Gremlin plots. Use them to calibrate the constants in `src/slosh/PerformanceModel.cpp`. The model costs a full tank, so divide by `particles` when fitting the per-particle constants. Fit the display transfer and per-pixel costs first, since they dominate the frame. If the device can't reach the target frame rate, the liquid plays in slow motion.
+Over USB serial the firmware prints `fps`, per-stage timings, particle count, free heap, gravity, bus voltage and fill level once a second as `key:value` lines that Gremlin plots, plus a second line timing each phase of the simulation step. Use them to calibrate the constants in `src/slosh/PerformanceModel.cpp`. The model costs a full tank, so calibrate with one (the bench level is 1.0) and divide by `particles` when fitting the per-particle constants. If the device can't reach the target frame rate, the liquid plays in slow motion.
 
 ## Wiring
 
