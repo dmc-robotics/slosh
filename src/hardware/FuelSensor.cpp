@@ -1,44 +1,72 @@
 #include "FuelSensor.h"
 
-#include <Arduino.h>
-
 #include <cmath>
+#include <cstdlib>
 
 #include "../slosh/FuelLevel.h"
 #include "BoardPins.h"
 #include "PowerBusConfig.h"
 
-namespace {
-
-bool connectedAt(float busVoltage) { return busVoltage >= CELL_COUNT * MINIMUM_CONNECTED_CELL_VOLTAGE; }
-
-}  // namespace
-
-void FuelSensor::begin() {
-  analogSetPinAttenuation(BUS_VOLTAGE_PIN, ADC_11db);
-  _busVoltage = readBusVoltage();
+void FuelSensor::begin(HardwareSerial& port) {
+  _port = &port;
+  _port->begin(BUS_DATA_BAUD_RATE, SERIAL_8N1, BUS_DATA_PIN, -1);
   _fillLevel = measuredFillLevel();
 }
 
 void FuelSensor::update(float elapsedTime) {
-  float reading = readBusVoltage();
-  // Plugging or unplugging the bus jumps straight to the new voltage instead of filtering
-  // through an empty tank on the way.
-  if (connectedAt(reading) != connected()) {
-    _busVoltage = reading;
-  } else {
-    _busVoltage += (reading - _busVoltage) * (1.0f - std::exp(-elapsedTime / VOLTAGE_FILTER_TIME_CONSTANT));
+  bool wasConnected = connected();
+  _signalAge += elapsedTime;
+  float reading;
+  while (readVoltage(reading)) {
+    _latestVoltage = reading;
+    _signalAge = 0.0f;
+    _signalSeen = true;
+  }
+  if (connected()) {
+    // After a gap, jump to the new voltage rather than filtering up from stale data.
+    if (!wasConnected) {
+      _busVoltage = _latestVoltage;
+    } else {
+      _busVoltage += (_latestVoltage - _busVoltage) * (1.0f - std::exp(-elapsedTime / VOLTAGE_FILTER_TIME_CONSTANT));
+    }
   }
   _fillLevel = settleFillLevel(_fillLevel, measuredFillLevel());
 }
 
-bool FuelSensor::connected() const { return connectedAt(_busVoltage); }
+bool FuelSensor::connected() const { return _signalSeen && _signalAge < SIGNAL_TIMEOUT; }
 
 float FuelSensor::measuredFillLevel() const {
   return connected() ? fillLevelFromCellVoltage(_busVoltage / CELL_COUNT) : BENCH_FILL_LEVEL;
 }
 
-float FuelSensor::readBusVoltage() const {
-  float pinVoltage = analogReadMilliVolts(BUS_VOLTAGE_PIN) / 1000.0f;
-  return pinVoltage * (DIVIDER_TOP_RESISTANCE + DIVIDER_BOTTOM_RESISTANCE) / DIVIDER_BOTTOM_RESISTANCE;
+// Reads the next complete line from the provider. Malformed and overlong lines are dropped.
+bool FuelSensor::readVoltage(float& voltage) {
+  while (_port->available() > 0) {
+    char character = static_cast<char>(_port->read());
+    if (character == '\r') continue;
+    if (character != '\n') {
+      if (_lineLength < LINE_CAPACITY - 1) {
+        _line[_lineLength++] = character;
+      } else {
+        _lineTooLong = true;
+      }
+      continue;
+    }
+
+    bool usable = _lineLength > 0 && !_lineTooLong;
+    _line[_lineLength] = '\0';
+    _lineLength = 0;
+    _lineTooLong = false;
+    if (!usable) continue;
+
+    char* end;
+    float value = std::strtof(_line, &end);
+    bool parsed = end != _line;
+    while (*end == ' ') end++;
+    if (parsed && *end == '\0' && std::isfinite(value) && value >= 0.0f) {
+      voltage = value;
+      return true;
+    }
+  }
+  return false;
 }

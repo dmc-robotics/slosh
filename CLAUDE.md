@@ -19,7 +19,7 @@ Slosh is a "fuel gage" for robotics projects. It uses a Waveshare display to sho
 
  ## Connections
 
- The fuel gage will have power and data connections. Power is from a suitable source for hte display The data is the voltage from the full power bus being measured.
+ The fuel gage will have power and data connections. Power is from a suitable source for hte display The data is the power bus voltage, measured by a data provider (e.g. an Arduino) and sent to the gauge as UART text lines (see README).
 
  ## Visual Tuning
 

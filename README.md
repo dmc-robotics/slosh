@@ -10,7 +10,7 @@ Runs on the [Waveshare ESP32-S3-Touch-AMOLED-1.75](https://www.waveshare.com/esp
 |---|---|
 | `slosh.ino` | Firmware main loop: read the sensors, step, render in strips, report timings |
 | `src/slosh/` | Shared core, plain C++ used by both the firmware and the tuner: FLIP simulation, renderer, ESP32 cost model, LiPo fuel level, `TunedSettings.h` |
-| `src/hardware/` | Firmware only: pins, power bus config, accelerometer and bus voltage sensors |
+| `src/hardware/` | Firmware only: pins, power bus config, accelerometer and bus voltage input |
 | `tuner/` | Browser tuner: `index.html` plus the core compiled to WebAssembly |
 | `test/` | Host check of the shared core |
 
@@ -34,11 +34,22 @@ grot build
 grot load
 ```
 
-Over USB serial the firmware prints `fps`, per-stage timings, particle count, free heap, bus voltage and fill level once a second as `key:value` lines that Gremlin plots. Use them to calibrate the constants in `src/slosh/PerformanceModel.cpp`. The model costs a full tank, so divide by `particles` when fitting the per-particle constants. Fit the display transfer and per-pixel costs first, since they dominate the frame. If the device can't reach the target frame rate, the liquid plays in slow motion.
+Over USB serial the firmware prints `fps`, per-stage timings, particle count, free heap, gravity, bus voltage and fill level once a second as `key:value` lines that Gremlin plots. Use them to calibrate the constants in `src/slosh/PerformanceModel.cpp`. The model costs a full tank, so divide by `particles` when fitting the per-particle constants. Fit the display transfer and per-pixel costs first, since they dominate the frame. If the device can't reach the target frame rate, the liquid plays in slow motion.
 
 ## Wiring
 
-Feed the robot's power bus through a resistor divider into GPIO16 (expansion header pin 8), and connect the grounds. The default 100 kΩ / 20 kΩ divider suits up to a 4-cell pack (16.8 V). A larger pack needs a bigger top resistor, and the build fails if a full pack would put more than 3.1 V on the pin. For extra protection, add a 1 kΩ series resistor and a 3.3 V clamp diode at the pin. Set the cell count and resistor values in `src/hardware/PowerBusConfig.h`. With nothing connected, the gauge shows a fixed bench level.
+The gauge doesn't measure the bus itself. A data provider, such as an Arduino on the robot, measures the bus voltage and sends it over UART at 9600 baud as text: one reading in volts per line, at least once a second.
+
+```cpp
+void setup() { Serial.begin(9600); }
+
+void loop() {
+  Serial.println(busVoltage(), 2);  // however the provider measures it, e.g. "11.84"
+  delay(250);
+}
+```
+
+Connect the provider's TX to GPIO16 (expansion header pin 8), and connect the grounds. ESP32 pins take 3.3 V at most, so from a 5 V board such as an Uno, drop TX through a divider: 1 kΩ from TX to the pin and 2 kΩ from the pin to ground. Set the cell count in `src/hardware/PowerBusConfig.h`. If no reading arrives for 3 s, the gauge shows a fixed bench level.
 
 ## Test
 

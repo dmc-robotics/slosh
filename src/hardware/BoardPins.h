@@ -13,5 +13,5 @@ constexpr int DISPLAY_COLUMN_OFFSET = 6;  // the CO5300's visible area starts at
 constexpr int I2C_DATA_PIN = 15;
 constexpr int I2C_CLOCK_PIN = 14;
 
-// Expansion header pin 8. ADC2, which is usable because Wi-Fi stays off.
-constexpr int BUS_VOLTAGE_PIN = 16;
+// Expansion header pin 8: UART1 receive, from the power bus data provider.
+constexpr int BUS_DATA_PIN = 16;

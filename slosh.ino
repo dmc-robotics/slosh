@@ -72,7 +72,7 @@ void setup() {
     }
   }
 
-  fuelSensor.begin();
+  fuelSensor.begin(Serial1);
   simulation.setFillLevel(fuelSensor.fillLevel());
   simulation.configure(TUNED_SETTINGS);
   renderer.configure(TUNED_SETTINGS, DISPLAY_SIZE);
