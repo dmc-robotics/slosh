@@ -189,7 +189,7 @@ const FIELDS = [
   { key: "coreColor", group: "Appearance", label: "Core color", color: true },
   { key: "rimColor", group: "Appearance", label: "Rim color", color: true },
   { key: "glowColor", group: "Appearance", label: "Glow color", color: true },
-  { key: "targetFrameRate", group: "Performance", label: "Target frame rate", unit: "fps", min: 10, max: 60, step: 1 },
+  { key: "targetFrameRate", group: "Performance", label: "Target frame rate", unit: "fps", options: [60, 30, 20, 15, 12, 10], hint: "Frames stay up for whole 60 Hz panel refreshes, so these are the rates it can hold." },
 ];
 
 const STANDARD_GRAVITY = 9.80665;
@@ -254,12 +254,15 @@ if (typeof createSloshModule === "undefined") {
       const id = `setting-${field.key}`;
       row.innerHTML = field.color
         ? `<label for="${id}">${field.label}</label><input type="color" id="${id}">`
+        : field.options
+        ? `<label for="${id}">${field.label}</label>
+           <select id="${id}">${field.options.map(option => `<option value="${option}">${formatValue(field, option)}</option>`).join("")}</select>`
         : `<label for="${id}">${field.label}</label><output></output>
            <input type="range" id="${id}" min="${field.min}" max="${field.max}" step="${field.step}">`;
       if (field.hint) row.insertAdjacentHTML("beforeend", `<span class="hint">${field.hint}</span>`);
       panels[field.group].appendChild(row);
 
-      const input = row.querySelector("input");
+      const input = row.querySelector("input, select");
       const output = row.querySelector("output");
       input.addEventListener("input", () => {
         settings[field.key] = field.color ? hexToColor(input.value) : Number(input.value);
@@ -368,8 +371,10 @@ if (typeof createSloshModule === "undefined") {
         invalid.push(field.key);
         continue;
       }
-      let limited = field.color ? Math.min(Math.max(value, 0), 0xffffff) : Math.min(Math.max(value, field.min), field.max);
-      if (!field.color) limited = roundFloat(Math.min(field.min + Math.round((limited - field.min) / field.step) * field.step, field.max));
+      let limited;
+      if (field.color) limited = Math.min(Math.max(value, 0), 0xffffff);
+      else if (field.options) limited = field.options.reduce((best, option) => Math.abs(option - value) < Math.abs(best - value) ? option : best);
+      else limited = roundFloat(Math.min(field.min + Math.round((Math.min(Math.max(value, field.min), field.max) - field.min) / field.step) * field.step, field.max));
       if (limited !== value) clamped.push(field.key);
       next[field.key] = limited;
       imported.push(field.key);

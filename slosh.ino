@@ -59,7 +59,9 @@ std::atomic<uint32_t> transferTime{0};
 portMUX_TYPE refreshLock = portMUX_INITIALIZER_UNLOCKED;
 volatile uint32_t refreshCount = 0;
 volatile uint32_t refreshStart = 0;  // micros()
-bool refreshSync = false;  // frames follow the panel's TE signal rather than FRAME_PERIOD
+// Frames follow the panel's TE signal rather than FRAME_PERIOD: set by each refresh, cleared by the
+// display task if the refreshes stop.
+std::atomic<bool> refreshSync{false};
 
 // Defined before use: the Arduino builder doesn't declare IRAM_ATTR functions ahead.
 void IRAM_ATTR onRefreshStart() {
@@ -67,6 +69,7 @@ void IRAM_ATTR onRefreshStart() {
   refreshStart = micros();
   refreshCount++;
   portEXIT_CRITICAL_ISR(&refreshLock);
+  refreshSync = true;
   BaseType_t woken = pdFALSE;
   vTaskNotifyGiveFromISR(displayTask, &woken);
   portYIELD_FROM_ISR(woken);
@@ -125,7 +128,6 @@ void setup() {
   pinMode(DISPLAY_TEARING_PIN, INPUT);
   attachInterrupt(DISPLAY_TEARING_PIN, onRefreshStart, FALLING);
   delay(100);
-  refreshSync = refreshCount >= 3;
   if (!refreshSync) console.println("ERROR:no TE signal from the display; frames may tear");
 
   previousFrameTime = micros();
@@ -164,7 +166,10 @@ uint32_t waitForRefresh(uint32_t target) {
       }
       target = refresh + 1;  // too late for this one
     }
-    if (ulTaskNotifyTake(pdTRUE, REFRESH_TIMEOUT) == 0) return refresh;  // TE lost: send now
+    if (ulTaskNotifyTake(pdTRUE, REFRESH_TIMEOUT) == 0) {
+      refreshSync = false;  // TE lost: pace by FRAME_PERIOD until it returns
+      return refresh;
+    }
   }
 }
 

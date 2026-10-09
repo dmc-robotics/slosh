@@ -158,12 +158,14 @@ void checkSettings() {
   settings = TEST_SETTINGS;
   settings.targetFrameRate = NAN;
   check(!settingsValid(settings), "a NaN frame rate is invalid");
+  settings.targetFrameRate = 25.0f;
+  check(!settingsValid(settings), "a frame rate the panel can't hold is invalid");
+  settings.targetFrameRate = 20.0f;
+  check(settingsValid(settings), "20 fps, three refreshes per frame, is valid");
 
   check(estimatePerformance(TEST_SETTINGS, DISPLAY_SIZE).withinMemoryBudget, "test settings fit the heap budget");
   check(refreshesPerFrame(30.0f) == 2 && refreshesPerFrame(60.0f) == 1, "30 fps shows each frame for two panel refreshes");
-  settings = TEST_SETTINGS;
-  settings.targetFrameRate = 40.0f;
-  check(!estimatePerformance(settings, DISPLAY_SIZE).withinFrameBudget, "a target the panel can't hold is over budget");
+
   settings = TEST_SETTINGS;
   settings.gridResolution = 64;
   settings.particleRadiusRatio = 0.2f;

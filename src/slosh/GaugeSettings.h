@@ -1,10 +1,24 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <initializer_list>
 
 // Diameter of the round display in pixels.
 constexpr int DISPLAY_SIZE = 466;
+
+// The panel refreshes at this rate (measured from its TE signal), and the firmware syncs frames to
+// it so no refresh shows parts of two frames. Each frame stays up for a whole number of refreshes.
+constexpr float PANEL_REFRESH_RATE = 60.1f;  // Hz
+constexpr int refreshesPerFrame(float targetFrameRate) {
+  return std::max(1, static_cast<int>(PANEL_REFRESH_RATE / targetFrameRate + 0.5f));
+}
+
+// True for a rate of whole panel refreshes per frame, allowing for the panel not running at exactly 60 Hz.
+constexpr bool frameRateHeld(float frameRate) {
+  float error = frameRate * refreshesPerFrame(frameRate) - PANEL_REFRESH_RATE;
+  return error * error < 1.0f;
+}
 
 // Everything that shapes how the gauge looks and how much work it costs.
 // The tuner edits these and exports them as TunedSettings.h. A new field also goes in
@@ -38,11 +52,12 @@ struct GaugeSettings {
   uint32_t glowColor;
 
   // Performance
-  float targetFrameRate;     // frames per second the ESP32 should sustain; each frame stays up for
-                             // whole 60 Hz panel refreshes, so 30, 20 or 15 are the rates it can hold
+  float targetFrameRate;     // frames per second the ESP32 should sustain: 60, 30, 20, 15, 12 or 10,
+                             // since each frame stays up for whole 60 Hz panel refreshes
 };
 
-// False for settings that would hang or crash the simulation or renderer, or overflow its sizes.
+// False for settings that would hang or crash the simulation or renderer, or overflow its sizes,
+// and for a frame rate the panel can't hold: the liquid would run fast or slow on the gauge.
 constexpr bool settingsValid(const GaugeSettings& settings) {
   auto finite = [](float value) { return value - value == 0.0f; };
   for (float value : {settings.fullChargeFill, settings.tankDiameter, settings.gravityScale, settings.particleRadiusRatio,
@@ -54,5 +69,6 @@ constexpr bool settingsValid(const GaugeSettings& settings) {
          settings.gridResolution >= 2 && settings.gridResolution <= 256 && settings.particleRadiusRatio >= 0.1f &&
          settings.particleRadiusRatio <= 0.5f && settings.substeps >= 1 && settings.pressureIterations >= 0 &&
          settings.separationIterations >= 0 && settings.densityResolution >= 2 && settings.densityResolution <= 256 &&
-         settings.smoothingPasses >= 0 && settings.targetFrameRate > 0.0f;
+         settings.smoothingPasses >= 0 && settings.targetFrameRate > 0.0f &&
+         frameRateHeld(settings.targetFrameRate);
 }

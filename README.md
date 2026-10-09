@@ -55,7 +55,7 @@ void loop() {
 }
 ```
 
-Connect the provider's TX to GPIO16 (expansion header pin 8), and connect the grounds. ESP32 pins take 3.3 V at most, so from a 5 V board such as an Uno, drop TX through a divider: 1 kΩ from TX to the pin and 2 kΩ from the pin to ground. Set the cell count in `src/hardware/PowerBusConfig.h`. If no reading arrives for 3 s, the gauge shows a fixed bench level.
+Connect the provider's TX to GPIO16 (expansion header pin 8), and connect the grounds. ESP32 pins take 3.3 V at most, so from a 5 V board such as an Uno, drop TX through a divider: 1 kΩ from TX to the pin and 2 kΩ from the pin to ground. Set the cell count in `src/hardware/PowerBusConfig.h`. Readings outside 2.5–4.4 V per cell are ignored, and so is the first line after the gauge starts or the signal returns, in case it was caught partway through. If no reading arrives for 3 s, the gauge shows a fixed bench level.
 
 ## Test
 

@@ -22,6 +22,8 @@ void FuelSensor::update(float elapsedTime) {
     _signalAge = 0.0f;
     _signalSeen = true;
   }
+  // The provider may come back partway through a line, whose tail would parse as a wrong reading.
+  if (wasConnected && !connected()) _discardLine = true;
   if (connected()) {
     // After a gap, jump to the new voltage rather than filtering up from stale data.
     if (!wasConnected) {
@@ -39,7 +41,7 @@ float FuelSensor::measuredFillLevel() const {
   return connected() ? fillLevelFromCellVoltage(_busVoltage / CELL_COUNT) : BENCH_FILL_LEVEL;
 }
 
-// Reads the next complete line from the provider. Malformed and overlong lines are dropped.
+// Reads the next complete line from the provider. Malformed, overlong and implausible lines are dropped.
 bool FuelSensor::readVoltage(float& voltage) {
   while (_port->available() > 0) {
     char character = static_cast<char>(_port->read());
@@ -48,22 +50,23 @@ bool FuelSensor::readVoltage(float& voltage) {
       if (_lineLength < LINE_CAPACITY - 1) {
         _line[_lineLength++] = character;
       } else {
-        _lineTooLong = true;
+        _discardLine = true;
       }
       continue;
     }
 
-    bool usable = _lineLength > 0 && !_lineTooLong;
+    bool usable = _lineLength > 0 && !_discardLine;
     _line[_lineLength] = '\0';
     _lineLength = 0;
-    _lineTooLong = false;
+    _discardLine = false;
     if (!usable) continue;
 
     char* end;
     float value = std::strtof(_line, &end);
     bool parsed = end != _line;
     while (*end == ' ') end++;
-    if (parsed && *end == '\0' && std::isfinite(value) && value >= 0.0f) {
+    // The range check also rejects NaN and infinity.
+    if (parsed && *end == '\0' && value >= CELL_COUNT * MINIMUM_CELL_VOLTAGE && value <= CELL_COUNT * MAXIMUM_CELL_VOLTAGE) {
       voltage = value;
       return true;
     }

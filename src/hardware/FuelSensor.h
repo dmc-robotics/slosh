@@ -23,7 +23,7 @@ class FuelSensor {
   HardwareSerial* _port = nullptr;
   char _line[LINE_CAPACITY] = {};
   int _lineLength = 0;
-  bool _lineTooLong = false;
+  bool _discardLine = true;  // overlong, or maybe joined partway through: at startup and after a gap
   float _signalAge = 0.0f;  // s since the last reading
   bool _signalSeen = false;
   float _latestVoltage = 0.0f;
